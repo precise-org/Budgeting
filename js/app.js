@@ -5811,8 +5811,9 @@
     if (can('request.decide')) tasks.push(task('คำขอเบิกใช้งบรอตรวจสอบ', inbox(u).length, '#/tasks?tab=requests'));
     if (can('po.record')) tasks.push(task('รอออก PO', db.requests.filter((r) => reqScoped(r) && needsPO(r)).length, '#/tasks?tab=po'));
     if (can('cut.record')) {
+      // กฎตัดงบใหม่ไม่มีงานนี้ของผู้คุมงบแล้ว (ตัดงบ + ปิดยอดอัตโนมัติ) — แสดงเฉพาะเมื่อมีใบเก่าตกค้าง
       const cuts = db.requests.filter((r) => reqScoped(r) && needsCut(r));
-      tasks.push(task('รอตัดงบ / ปิดยอด', cuts.length, '#/tasks?tab=cuts', cuts.length ? 'รวม ' + money(cuts.reduce((s2, r) => s2 + Math.max(r.amount - cutTotal(r), 0), 0)) + ' บาท' : ''));
+      if (cuts.length) tasks.push(task('รอตัดงบ / ปิดยอด', cuts.length, '#/tasks?tab=cuts', cuts.length ? 'รวม ' + money(cuts.reduce((s2, r) => s2 + Math.max(r.amount - cutTotal(r), 0), 0)) + ' บาท' : ''));
     }
     if (can('budget.create') && !proxyOnly()) {
       const mineB = db.budgets.filter(actsFor);
@@ -6724,8 +6725,9 @@
       add('po', 'รอออก PO', true, 'ใบเบิกใช้งบประเภท PR/PO ที่ผู้คุมงบอนุมัติแล้ว — บันทึกเลข PR/PO และยอด PO — ระบบตัดงบและปิดยอดให้ทันที (ผู้คุมงบไม่ต้องทำอะไรต่อ)',
         [sec('', db.requests.filter((r) => reqScoped(r) && needsPO(r)), (l) => cutQueueTable(l, false))]);
     }
-    if (has('cut.record')) {
-      add('cuts', 'รอตัดงบ / ปิดยอด', true, 'ใบเบิกใช้งบที่ออกแล้วแต่ยังไม่ปิดยอด (ไม่รวม PR/PO ที่รอจัดซื้อออก PO)',
+    // แท็บนี้ไม่ใช่งานปกติของผู้คุมงบอีกแล้ว (กฎตัดงบใหม่ตัดงบ + ปิดยอดอัตโนมัติ) — โผล่เฉพาะเมื่อมีใบเก่าตกค้างที่ยังไม่ถูกย้ายเข้ากฎใหม่
+    if (has('cut.record') && db.requests.some((r) => reqScoped(r) && needsCut(r))) {
+      add('cuts', 'รอตัดงบ / ปิดยอด (ใบเก่าตกค้าง)', true, 'ใบเบิกใช้งบที่ออกก่อนกฎตัดงบใหม่และยังไม่ปิดยอด (กฎใหม่ไม่ต้องให้ผู้คุมงบตัดงบ / ปิดยอดแล้ว)',
         [sec('', db.requests.filter((r) => reqScoped(r) && needsCut(r)), (l) => cutQueueTable(l, true))]);
     }
     if (has('budget.create') || has('request.create')) {
