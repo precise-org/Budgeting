@@ -2916,7 +2916,8 @@
         return '<tr><td><input type="checkbox" data-open-pick="' + b.id + '" aria-label="เลือก ' + esc(b.code) + '"' + (blocked ? ' disabled' : '') + '></td>' +
           '<td>' + badge(b.type, TYPE_SHORT[b.type]) + ' <a href="#/budget/' + b.id + '">' + esc(b.code) + '</a><div class="muted">' + esc(b.name) + '</div></td>' +
           '<td class="nowrap">' + esc(b.company) + ' · ' + esc(b.fiscalYear) + '</td><td class="num">' + money(budgetTotal(b)) + '</td>' +
-          '<td>' + (needsItems(b) ? '<a href="#/budget/' + b.id + '/breakdown">ต้องลงรายละเอียด Item ก่อน</a>' : reason ? '<span class="muted">' + reason + '</span>' : '') + '</td></tr>';
+          '<td>' + (b.state === 'open_returned' ? '<div class="neg">ผู้คุมงบส่งกลับ: ' + esc(b.returnReason || '') + '</div>' : '') +
+          (needsItems(b) ? '<a href="#/budget/' + b.id + '/breakdown">ต้องลงรายละเอียด Item ก่อน</a>' : reason ? '<span class="muted">' + reason + '</span>' : '') + '</td></tr>';
       }).join('') + '</tbody></table></div></div>';
   }
 
@@ -5817,7 +5818,7 @@
     }
     if (can('budget.create') && !proxyOnly()) {
       const mineB = db.budgets.filter(actsFor);
-      tasks.push(task('งบรอขอดำเนินการใช้งบ', mineB.filter((b) => b.state === 'pending_open' && b.ownerId === u.id).length, '#/tasks?tab=toopen', 'ทำ Memo ให้ผู้บริหารเซ็น'),
+      tasks.push(task('งบรอขอดำเนินการใช้งบ', mineB.filter((b) => waitingOpen(b) && b.ownerId === u.id).length, '#/tasks?tab=toopen', 'ทำ Memo (CAPEX) / ส่งให้ผู้คุมงบยืนยัน (OPEX) · รวมงบที่ถูกส่งกลับ'),
         task('งบร่าง', mineB.filter((b) => b.state === 'draft').length, '#/tasks?tab=drafts'),
         task('งบรอผู้คุมงบยืนยัน', mineB.filter((b) => b.state === 'review' || b.state === 'open_review').length, '#/tasks?tab=waiting'));
     }
@@ -5825,7 +5826,7 @@
       tasks.push(task('วาง Plan Cashflow เดือนนี้', cashflowTodo().length, '#/tasks?tab=cashflow', 'งบ CAPEX ที่เปิดใช้แล้ว เดือน ' + monthLabel(curYm()) + ' ยังไม่มีแผน'),
         task('รอเคลียร์เงินทดรอง', mineReq.filter(needsClear).length, '#/tasks?tab=clear', 'ผู้คุมงบอนุมัติแล้ว — เคลียร์ตามใบเสร็จเพื่อตัดงบ'),
         task('คำขอของฉันที่รอผู้คุมงบตรวจสอบ', mineReq.filter((r) => r.status === 'pending').length, '#/tasks?tab=waiting'),
-        task('ส่งกลับแก้ไข', mineReq.filter((r) => r.status === 'rejected').length + db.budgets.filter((b) => actsFor(b) && (b.state === 'returned' || b.state === 'open_returned')).length, '#/tasks?tab=fix'),
+        task('ส่งกลับแก้ไข', mineReq.filter((r) => r.status === 'rejected').length + db.budgets.filter((b) => actsFor(b) && b.state === 'returned').length, '#/tasks?tab=fix'),
         task('ออกใบเบิกใช้งบแล้ว รอปิดยอด', mineReq.filter((r) => r.status === 'approved').length, '#/tasks?tab=open'));
     }
     if (REMOTE && can('user.manage')) tasks.push(task('ผู้ใช้ที่รอกำหนดบทบาท', Number(adminCounts.pending || 0), '#/admin'));
@@ -6733,10 +6734,10 @@
       const mineB = db.budgets.filter(actsFor);
       const mineR = db.requests.filter((r) => r.requesterId === u.id || proxyOf(budgetById(r.budgetId)));
       const mineC = (db.changes || []).filter((c) => c.createdBy === u.id || proxyOf(budgetById(c.budgetId)));
-      add('toopen', 'งบรอขอดำเนินการใช้งบ', true, 'งบ CAPEX ประจำปีที่ผู้คุมงบลงไว้ให้คุณ — ทำ Memo ขอดำเนินการใช้งบ ให้ผู้บริหารเซ็น แนบไฟล์ที่เซ็นแล้วส่งให้ผู้คุมงบยืนยัน',
-        [sec('', mineB.filter((b) => b.state === 'pending_open' && b.ownerId === u.id), openPickTable)]);
+      add('toopen', 'งบรอขอดำเนินการใช้งบ', true, 'งบที่ผู้คุมงบลงไว้ให้คุณ (รวมงบที่ถูกส่งกลับให้แก้) — CAPEX: ทำ Memo ขอดำเนินการใช้งบ ให้ผู้บริหารเซ็น แนบไฟล์ที่เซ็นแล้วส่งให้ผู้คุมงบยืนยัน · OPEX: ลง Item ให้ครบแล้วส่งให้ผู้คุมงบยืนยัน หรือกดขอดำเนินการใช้งบ',
+        [sec('', mineB.filter((b) => waitingOpen(b) && b.ownerId === u.id), openPickTable)]);
       add('fix', 'ส่งกลับแก้ไข', true, 'ผู้คุมงบส่งกลับพร้อมเหตุผล — แก้ไขแล้วส่งใหม่ หรือยกเลิก', [
-        sec('งบ', mineB.filter((b) => b.state === 'returned' || b.state === 'open_returned'), myBudgetTable),
+        sec('งบ', mineB.filter((b) => b.state === 'returned'), myBudgetTable),
         sec('คำขอเบิกใช้งบ', mineR.filter((r) => r.status === 'rejected'), (l) => requestTable(l, true)),
         sec('คำขอเพิ่มงบ', mineC.filter((c) => c.state === 'returned'), changeQueueTable)]);
       add('drafts', 'ร่าง', false, 'ร่างที่ยังไม่ได้ส่ง — แนบมติที่ประชุม (CAPEX) หรือเอกสารอนุมัติผู้บริหาร (OPEX) แล้วส่งให้ผู้คุมงบ (ร่างค้างไว้ได้ไม่จำกัดเวลา)', [
