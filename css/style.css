@@ -670,7 +670,8 @@ td .files li { padding: var(--s-1) var(--s-2); }
 }
 
 /* ---- งานของฉัน: แท็บพร้อมตัวเลข */
-.task-tabs { overflow-x: auto; scrollbar-width: thin; margin-bottom: var(--s-3); }
+/* ไม่มีแถบเลื่อน: แท็บพอดีความสูงของแถว · จอแคบให้ตัดขึ้นบรรทัดใหม่แทนการเลื่อน */
+.task-tabs { flex-wrap: wrap; overflow: visible; margin-bottom: var(--s-3); }
 .task-tabs a { display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; flex: none; }
 .tab-badge {
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; line-height: 20px; text-align: center;
