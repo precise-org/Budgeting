@@ -285,4 +285,17 @@ reset role;
 update public.v2_profiles set role = 'controller' where id = '00000000-0000-0000-0000-000000000003';
 select pg_temp.ok((select roles from public.v2_profiles where id = '00000000-0000-0000-0000-000000000003') = array['controller'], 'แก้คอลัมน์ role ตรงๆ ซิงก์เข้า roles');
 update public.v2_profiles set role = 'business' where id = '00000000-0000-0000-0000-000000000003';
+
+-- ---------------------------------------------------------------- หน่วยงานของผู้ใช้ (Business 1 · ธุรการได้หลาย)
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+select pg_temp.ok((public.v2_update_user('00000000-0000-0000-0000-000000000003', 'Biz', '', '', 'PBI', '{}', array['business'], '{}', array['ฝ่ายวิศวกรรม'])->'departments') = '["ฝ่ายวิศวกรรม"]'::jsonb, 'ตั้งหน่วยงานของ Business ได้');
+select pg_temp.ok((public.v2_update_user('00000000-0000-0000-0000-000000000003', 'Biz', '', '', 'PBI', '{}', array['business'], '{}', array['ฝ่ายผลิต', ' ฝ่าย IT ', 'ฝ่ายผลิต', ''])->'departments') = '["ฝ่ายผลิต", "ฝ่าย IT"]'::jsonb, 'หลายหน่วยงาน: ตัดช่องว่าง/ซ้ำ/ว่าง คงลำดับ');
+select pg_temp.ok((select x ->> 'department' from jsonb_array_elements(public.v2_list_users()) x where x ->> 'id' = '00000000-0000-0000-0000-000000000003') = 'ฝ่ายผลิต', 'department = หน่วยงานแรก');
+select pg_temp.ok((public.v2_update_user('00000000-0000-0000-0000-000000000003', 'Biz', '', 'ฝ่ายบัญชี', 'PBI', '{}', array['business'], '{}')->'departments') = '["ฝ่ายบัญชี"]'::jsonb, 'เรียกแบบเดิม (หน่วยงานเดียว) ยังใช้ได้');
+select pg_temp.ok((public.v2_update_user('00000000-0000-0000-0000-000000000003', 'Biz', '', '', 'PBI', '{}', array['business'], '{}', '{}'::text[])->'departments') = '[]'::jsonb, 'ล้างหน่วยงานได้');
+reset role;
+update public.v2_profiles set department = 'ฝ่าย IT' where id = '00000000-0000-0000-0000-000000000003';
+select pg_temp.ok((select departments from public.v2_profiles where id = '00000000-0000-0000-0000-000000000003') = array['ฝ่าย IT'], 'แก้คอลัมน์ department ตรงๆ ซิงก์เข้า departments');
+update public.v2_profiles set department = '' where id = '00000000-0000-0000-0000-000000000003';
 \echo ALL V2 TESTS PASSED
