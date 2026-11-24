@@ -1889,10 +1889,8 @@
     if (!filled(e.name)) m.push('ชื่อโครงการ');
     if (!filled(e.company)) m.push('บริษัท');
     if (!filled(e.department)) m.push('หน่วยงานที่ขอ');
-    // ช่องเลือกที่ข้อมูลหลักยังว่าง (ยังไม่ได้ใส่ตัวเลือก) ไม่บังคับ
+    // ช่องเลือกที่ข้อมูลหลักยังว่าง (ยังไม่ได้ใส่ตัวเลือก) ไม่บังคับ · กลุ่ม Priority / กลุ่ม Priority การลงทุน ไม่บังคับกรอก (เจ้าของระบบสั่ง)
     const hasOpts = (el) => el && el.options && el.options.length > 1;
-    if (hasOpts(e.priorityGroup) && !filled(e.priorityGroup)) m.push('กลุ่ม Priority');
-    if (type === 'CAPEX' && hasOpts(e.investGroup) && !filled(e.investGroup)) m.push('กลุ่ม Priority การลงทุน');
     if (!filled(e.fiscalYear)) m.push(type === 'CBS' ? 'ปีงบประมาณ' : 'ปีที่ลงทุน');
     if (hasOpts(e.financeOwner) && !filled(e.financeOwner)) m.push('เจ้าของฝ่ายการเงิน');
     if ((f.dataset.mode === 'setup' || isProxy()) && !filled(e.ownerId)) m.push('Owner (Business เจ้าของงบ)');
