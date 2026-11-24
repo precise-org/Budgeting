@@ -27,6 +27,11 @@ create table if not exists public.v2_docs (
   updated_by    uuid,
   primary key (kind, id)
 );
+-- หน่วยงานของงบ (request/change ใช้ของงบที่อ้างอิง) — ธุรการเห็น/ทำแทนตามหน่วยงาน
+alter table public.v2_docs add column if not exists department text not null default '';
+update public.v2_docs set department = coalesce(data ->> 'department', '') where kind = 'budget' and department = '';
+update public.v2_docs d set department = b.department from public.v2_docs b
+  where d.kind in ('request', 'change') and d.department = '' and b.kind = 'budget' and b.id = d.budget_id and b.department <> '';
 create index if not exists v2_docs_updated_idx on public.v2_docs (updated_at);
 create index if not exists v2_docs_budget_idx on public.v2_docs (budget_id);
 
@@ -70,15 +75,21 @@ language sql immutable set search_path = public as $$
   select 'admin' = any (u.roles) or p_company = any (u.companies)
 $$;
 
-create or replace function public._v2_doc_visible(u public.v2_profiles, p_kind text, p_company text, p_owner text, p_requester text) returns boolean
+-- ลบเวอร์ชันเก่า (ไม่มีหน่วยงาน)
+drop function if exists public._v2_doc_visible(public.v2_profiles, text, text, text, text);
+
+/**
+ * เอกสารที่ผู้ใช้เห็น (และแก้ได้):
+ *   1) ผู้ที่เห็นงานของคนอื่น (ผู้คุมงบ/บัญชี/จัดซื้อ ฯลฯ): ทุกเอกสารของบริษัทในขอบเขต (Admin ทุกบริษัท)
+ *   2) ธุรการ (business.proxy): เอกสารของ "หน่วยงาน" ที่ Admin กำหนดให้ — ไม่ว่าบริษัทของงบจะเป็นบริษัทไหน (หน่วยงานเดียวกันใช้งบข้ามบริษัทได้)
+ *      (กฎ "เฉพาะงบที่เปิดใช้งานแล้ว" ตรวจตอนบันทึก)
+ *   3) เจ้าของงบ / ผู้ขอของคำขอเบิก เห็นของตัวเองเสมอ
+ */
+create or replace function public._v2_doc_visible(u public.v2_profiles, p_kind text, p_company text, p_owner text, p_requester text, p_department text) returns boolean
 language sql stable security definer set search_path = public as $$
-  select case
-    when public._v2_sees_all(u.roles) then public._v2_company_ok(u, p_company)
-    -- ธุรการ: เห็น/ทำแทนเฉพาะเอกสารของ Business ที่ Admin แท็กไว้ (p_owner = เจ้าของงบ) ในบริษัทที่มีสิทธิ์ · ยังไม่ได้แท็กใครเลย (proxy_for ว่าง) = ทั้งบริษัทไปก่อน
-    when 'business.proxy' = any (public._v2_perms(u.roles)) and public._v2_company_ok(u, p_company) and (cardinality(u.proxy_for) = 0 or p_owner = any (u.proxy_for)) then true
-    when p_kind = 'request' then p_requester = u.id::text
-    else p_owner = u.id::text
-  end
+  select (public._v2_sees_all(u.roles) and public._v2_company_ok(u, p_company))
+      or ('business.proxy' = any (public._v2_perms(u.roles)) and p_department <> '' and p_department = any (u.departments))
+      or (case when p_kind = 'request' then p_requester else p_owner end) = u.id::text
 $$;
 
 create or replace function public._v2_can_write(p_roles text[], p_kind text) returns boolean
@@ -111,7 +122,7 @@ declare
   u public.v2_profiles;
   txt_docs text; txt_log text; tok text; tmap jsonb := '{}'::jsonb; v_key text; v_n integer;
   d jsonb; l jsonb; ex public.v2_docs; v_kind text; v_id text; expected integer; ver integer; is_del boolean;
-  comp text; own text; req text; bud text; b public.v2_docs; v_proxy_only boolean; v_dept text; owner_depts text[];
+  comp text; own text; req text; bud text; b public.v2_docs; v_proxy_only boolean; v_dept text; owner_depts text[]; dept text;
   out_docs jsonb := '[]'::jsonb; out_log jsonb := '[]'::jsonb; rec record; new_id bigint; new_at timestamptz;
 begin
   u := public._v2_user();
@@ -154,23 +165,24 @@ begin
     select * into ex from public.v2_docs t0 where t0.kind = v_kind and t0.id = v_id for update;
     if ex.id is not null then
       if ex.version <> expected then raise exception 'CONFLICT: %/%', v_kind, v_id using errcode = '40001'; end if;
-      if not ex.deleted and not public._v2_doc_visible(u, v_kind, ex.company, ex.owner_id, ex.requester_id) then
+      if not ex.deleted and not public._v2_doc_visible(u, v_kind, ex.company, ex.owner_id, ex.requester_id, ex.department) then
         raise exception 'ไม่มีสิทธิ์แก้ไขเอกสารนี้ (%/%)', v_kind, v_id using errcode = '42501';
       end if;
     elsif expected <> 0 then
       raise exception 'CONFLICT: %/%', v_kind, v_id using errcode = '40001';
     end if;
 
-    comp := ''; own := ''; req := ''; bud := '';
+    comp := ''; own := ''; req := ''; bud := ''; dept := '';
     if not is_del then
       if v_kind = 'budget' then
         comp := coalesce(d -> 'data' ->> 'company', '');
         own := coalesce(d -> 'data' ->> 'ownerId', '');
+        dept := btrim(coalesce(d -> 'data' ->> 'department', ''));
       elsif v_kind in ('request', 'change') then
         bud := coalesce(d -> 'data' ->> 'budgetId', '');
         select * into b from public.v2_docs t1 where t1.kind = 'budget' and t1.id = bud and not t1.deleted;
         if b.id is null then raise exception 'ไม่พบงบที่อ้างอิง (%)', bud; end if;
-        comp := b.company; own := b.owner_id;
+        comp := b.company; own := b.owner_id; dept := b.department;
         if v_proxy_only and own <> u.id::text and coalesce(b.data ->> 'state', 'active') <> 'active' then
           raise exception 'ธุรการทำรายการได้เฉพาะงบที่เปิดใช้งานแล้ว (%)', bud using errcode = '42501';
         end if;
@@ -203,19 +215,19 @@ begin
           raise exception 'ธุรการอนุมัติหรือเปิดใช้งบไม่ได้ — เปิดใช้งบครั้งแรกต้องเป็น Business เจ้าของงบ' using errcode = '42501';
         end if;
       end if;
-      if not public._v2_doc_visible(u, v_kind, comp, own, req) then
+      if not public._v2_doc_visible(u, v_kind, comp, own, req, dept) then
         raise exception 'ไม่มีสิทธิ์บันทึกเอกสารนี้ (นอกขอบเขตบริษัท/เจ้าของ) (%/%)', v_kind, v_id using errcode = '42501';
       end if;
     elsif ex.id is null then
       raise exception 'ลบเอกสารที่ไม่มีอยู่';
     else
-      comp := ex.company; own := ex.owner_id; req := ex.requester_id; bud := ex.budget_id;
+      comp := ex.company; own := ex.owner_id; req := ex.requester_id; bud := ex.budget_id; dept := ex.department;
     end if;
 
     ver := expected + 1;
-    insert into public.v2_docs as t (kind, id, company, owner_id, requester_id, budget_id, data, version, deleted, updated_at, updated_by)
-      values (v_kind, v_id, comp, own, req, bud, case when is_del then '{}'::jsonb else d -> 'data' end, ver, is_del, clock_timestamp(), u.id)
-    on conflict (kind, id) do update set company = excluded.company, owner_id = excluded.owner_id, requester_id = excluded.requester_id,
+    insert into public.v2_docs as t (kind, id, company, owner_id, requester_id, budget_id, department, data, version, deleted, updated_at, updated_by)
+      values (v_kind, v_id, comp, own, req, bud, dept, case when is_del then '{}'::jsonb else d -> 'data' end, ver, is_del, clock_timestamp(), u.id)
+    on conflict (kind, id) do update set company = excluded.company, owner_id = excluded.owner_id, requester_id = excluded.requester_id, department = excluded.department,
       budget_id = excluded.budget_id, data = excluded.data, version = excluded.version, deleted = excluded.deleted,
       updated_at = excluded.updated_at, updated_by = excluded.updated_by;
     out_docs := out_docs || jsonb_build_object('kind', v_kind, 'id', v_id, 'version', ver);
@@ -251,7 +263,7 @@ begin
     into docs
     from public.v2_docs x
     where (case when since is null then not x.deleted else x.updated_at >= since end)
-      and public._v2_doc_visible(u, x.kind, x.company, x.owner_id, x.requester_id);
+      and public._v2_doc_visible(u, x.kind, x.company, x.owner_id, x.requester_id, x.department);
   select coalesce(jsonb_agg(jsonb_build_object('id', y.id, 'at', y.at, 'by', y.by_id, 'action', y.action, 'ref', y.ref, 'detail', y.detail) order by y.id), '[]'::jsonb)
     into lg
     from (select * from public.v2_log z
@@ -263,7 +275,7 @@ end $$;
 -- ---------------------------------------------------------------- สิทธิ์เรียกฟังก์ชัน
 
 revoke all on function public._v2_sees_all(text[]), public._v2_company_ok(public.v2_profiles, text),
-  public._v2_doc_visible(public.v2_profiles, text, text, text, text), public._v2_can_write(text[], text),
+  public._v2_doc_visible(public.v2_profiles, text, text, text, text, text), public._v2_can_write(text[], text),
   public._v2_log_visible(public.v2_profiles, uuid, text) from public, anon, authenticated;
 revoke all on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) from public, anon, authenticated;
 grant execute on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) to authenticated;

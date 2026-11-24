@@ -18,8 +18,9 @@ insert into public.v2_profiles (id, email, name, role, companies, active) values
   ('00000000-0000-0000-0000-000000000010', 'u10@example.com', 'AccPBI', 'accountant', '{PBI}', true),
   ('00000000-0000-0000-0000-000000000011', 'u11@example.com', 'AstPCC', 'assistant', '{PCC}', true),
   ('00000000-0000-0000-0000-000000000012', 'u12@example.com', 'AstNoTag', 'assistant', '{PBI}', true);
--- ธุรการแท็กตามชื่อ Business: 09 และ 11 ช่วย Biz1 (05) · 12 ไม่ถูกแท็กใคร
-update public.v2_profiles set proxy_for = array['00000000-0000-0000-0000-000000000005'] where id in ('00000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000011');
+-- หน่วยงาน: Biz1 (05) = ฝ่ายวิศวกรรม · Biz2 (06) = ฝ่ายขาย · ธุรการ 09 ช่วยฝ่ายวิศวกรรม · 11 ช่วยฝ่ายขาย · 12 ยังไม่ได้กำหนดหน่วยงาน (เห็นอะไรไม่ได้)
+update public.v2_profiles set departments = array['ฝ่ายวิศวกรรม'] where id in ('00000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000009');
+update public.v2_profiles set departments = array['ฝ่ายขาย'] where id in ('00000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000011');
 grant usage on schema public to anon, authenticated;
 
 create or replace function pg_temp.as_user(n int) returns void language plpgsql as $$
@@ -54,9 +55,9 @@ select pg_temp.as_user(1);
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bX","version":0,"data":{"company":"PBI","ownerId":"x"}}]')$$, 'Admin ทำรายการงบไม่ได้', 'ไม่มีสิทธิ์');
 
 select pg_temp.as_user(5);
-select public.v2_save_docs('[{"kind":"budget","id":"b1","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"A"}}]',
+select public.v2_save_docs('[{"kind":"budget","id":"b1","version":0,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"A"}}]',
   '[{"action":"สร้างงบ","ref":"งบ A","detail":"ทดสอบ","ownerId":"00000000-0000-0000-0000-000000000005","company":"PBI"}]');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b2","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"B"}}]')$$, 'business สร้างงบให้คนอื่นเป็นเจ้าของไม่ได้', 'นอกขอบเขต');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b2","version":0,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"B"}}]')$$, 'business สร้างงบให้คนอื่นเป็นเจ้าของไม่ได้', 'นอกขอบเขต');
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b3","version":0,"data":{"company":"PBI","code":"C"}}]')$$, 'business สร้างงบที่ไม่มีเจ้าของ (มองไม่เห็น) ไม่ได้', 'นอกขอบเขต');
 
 -- การมองเห็น
@@ -71,13 +72,13 @@ select pg_temp.as_user(7); select pg_temp.expect_fail($$select public.v2_load()$
 
 -- แก้ไขงบ: ผู้คุมงบ PBI แก้ได้ · PCC แก้ไม่ได้ · business คนอื่นแก้ไม่ได้ · เวอร์ชันเก่า = CONFLICT
 select pg_temp.as_user(3);
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"HACK"}}]')$$, 'ผู้คุมงบ PCC แก้งบ PBI ไม่ได้', 'ไม่มีสิทธิ์');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"HACK"}}]')$$, 'ผู้คุมงบ PCC แก้งบ PBI ไม่ได้', 'ไม่มีสิทธิ์');
 select pg_temp.as_user(6);
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"HACK"}}]')$$, 'business คนอื่นแย่งความเป็นเจ้าของงบไม่ได้', 'ไม่มีสิทธิ์');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"HACK"}}]')$$, 'business คนอื่นแย่งความเป็นเจ้าของงบไม่ได้', 'ไม่มีสิทธิ์');
 select pg_temp.as_user(2);
-select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"ctrl"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"ctrl"}}]');
 select pg_temp.as_user(5);
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"stale"}}]')$$, 'บันทึกทับด้วยเวอร์ชันเก่า = CONFLICT', 'CONFLICT');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":1,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"stale"}}]')$$, 'บันทึกทับด้วยเวอร์ชันเก่า = CONFLICT', 'CONFLICT');
 reset role;
 select pg_temp.ok((select data ->> 'by' from public.v2_docs where id = 'b1') = 'ctrl', 'ข้อมูลไม่ถูกเขียนทับเมื่อ CONFLICT');
 set role authenticated;
@@ -133,7 +134,7 @@ select pg_temp.as_user(3); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'chan
 
 -- ---------------------------------------------------------------- ลบ + ซิงก์เพิ่มเติม (since)
 select pg_temp.as_user(5);
-select public.v2_save_docs('[{"kind":"budget","id":"b9","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"ลบ"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"b9","version":0,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"ลบ"}}]');
 do $$ declare t timestamptz; ld jsonb; begin
   t := (public.v2_load() ->> 'now')::timestamptz;
   perform public.v2_save_docs('[{"kind":"budget","id":"b9","version":1,"deleted":true}]');
@@ -161,49 +162,49 @@ select pg_temp.ok((select by_id::text from public.v2_log where action = 'ปล�
 set role authenticated;
 
 -- ---------------------------------------------------------------- ธุรการ (business.proxy) และบัญชี (gl.manage)
--- แท็กตามชื่อ Business: ธุรการ 09 ช่วยเฉพาะ Biz1 (05) — งบของ Biz2 (06) ไม่เห็น ทำแทนไม่ได้ · ธุรการที่ยังไม่ถูกแท็ก (12) เห็น/ทำแทนได้ทั้งบริษัทไปก่อน
+-- ธุรการตามหน่วยงาน: 09 ช่วยฝ่ายวิศวกรรม (งบของ Biz1) · 11 ช่วยฝ่ายขาย (งบของ Biz2) แม้บริษัทของงบจะเป็นคนละบริษัท · 12 ไม่มีหน่วยงาน
 select pg_temp.as_user(6);
-select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","state":"draft"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":0,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","state":"draft"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bY","version":0,"data":{"company":"PCC","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"Y","state":"active"}}]');
 select pg_temp.as_user(9);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') not like '%bZ%', 'ธุรการที่แท็ก Biz1 ไม่เห็นงบของ Biz2');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"ast"}}]')$$, 'ธุรการแก้งบของ Business ที่ไม่ได้แท็กไม่ได้', 'ไม่มีสิทธิ์');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ2","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z2"}}]')$$, 'ธุรการสร้างงบไม่ได้ (แม้ให้ Business ที่ไม่ได้แท็ก)', 'ธุรการสร้างงบไม่ได้');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') not like '%bZ%' and pg_temp.ids(public.v2_load(), 'budget') not like '%bY%', 'ธุรการฝ่ายวิศวกรรมไม่เห็นงบของฝ่ายขาย');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%b1%', 'ธุรการฝ่ายวิศวกรรมเห็นงบของหน่วยงานตัวเอง');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"ast"}}]')$$, 'ธุรการแก้งบของหน่วยงานอื่นไม่ได้', 'ไม่มีสิทธิ์');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ2","version":0,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z2"}}]')$$, 'ธุรการสร้างงบไม่ได้', 'ธุรการสร้างงบไม่ได้');
 select pg_temp.as_user(12);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%bZ%' and pg_temp.ids(public.v2_load(), 'budget') like '%b1%', 'ธุรการที่ยังไม่ถูกแท็กใคร เห็นงบของทุก Business ในบริษัท (ไปก่อน)');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"astNoTag","state":"draft"}}]')$$, 'ธุรการแก้งบที่ยังเป็นร่างไม่ได้ (ทำได้เฉพาะงบที่เปิดใช้แล้ว)', 'เฉพาะงบที่เปิดใช้งานแล้ว');
-select public.v2_save_docs('[{"kind":"request","id":"rNoTag","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000006","proxyBy":"00000000-0000-0000-0000-000000000012"}}]');
-select pg_temp.ok(true, 'ธุรการที่ยังไม่ถูกแท็กทำคำขอเบิกแทน Business บนงบที่เปิดใช้แล้วในบริษัทได้');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"rNoTag2","version":0,"data":{"budgetId":"bZ","requesterId":"00000000-0000-0000-0000-000000000006"}}]')$$, 'ธุรการทำคำขอเบิกบนงบที่ยังไม่เปิดใช้ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') = '', 'ธุรการที่ยังไม่ได้กำหนดหน่วยงานไม่เห็นงบใครเลย');
 select pg_temp.as_user(11);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') = '', 'ธุรการ PCC (แท็ก Biz1 แต่คนละบริษัท) ไม่เห็นงบ PBI');
-select pg_temp.as_user(9);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%b1%', 'ธุรการ PBI เห็นงบของ Business ในบริษัทตัวเอง');
-select pg_temp.as_user(11);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') = '', 'ธุรการ PCC ไม่เห็นงบ PBI');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":2,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"astPCC"}}]')$$, 'ธุรการ PCC แก้งบ PBI ไม่ได้', 'ไม่มีสิทธิ์');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%bZ%' and pg_temp.ids(public.v2_load(), 'budget') like '%bY%' and pg_temp.ids(public.v2_load(), 'budget') not like '%b1%',
+  'ธุรการฝ่ายขายเห็นงบของฝ่ายขายข้ามบริษัท (PBI และ PCC) ไม่เห็นงบฝ่ายวิศวกรรม');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","department":"ฝ่ายขาย","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"ast11","state":"draft"}}]')$$, 'ธุรการแก้งบที่ยังเป็นร่างไม่ได้ (ทำได้เฉพาะงบที่เปิดใช้แล้ว)', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select public.v2_save_docs('[{"kind":"request","id":"rY","version":0,"data":{"budgetId":"bY","requesterId":"00000000-0000-0000-0000-000000000006","proxyBy":"00000000-0000-0000-0000-000000000011"}}]');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') like '%rY%', 'ธุรการทำคำขอเบิกแทนบนงบที่เปิดใช้แล้วของหน่วยงานตัวเอง (ข้ามบริษัท) ได้');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"rZ","version":0,"data":{"budgetId":"bZ","requesterId":"00000000-0000-0000-0000-000000000006"}}]')$$, 'ธุรการทำคำขอเบิกบนงบที่ยังไม่เปิดใช้ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"rB1","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005"}}]')$$, 'ธุรการทำคำขอเบิกบนงบของหน่วยงานอื่นไม่ได้', 'ไม่มีสิทธิ์');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"b1","version":2,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"A","by":"ast11"}}]')$$, 'ธุรการแก้งบของหน่วยงานอื่นไม่ได้ (คนละหน่วยงาน)', 'ไม่มีสิทธิ์');
 select pg_temp.as_user(9);
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP0","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000009","code":"P0"}}]')$$, 'ธุรการเป็นเจ้าของงบเองไม่ได้', 'ธุรการเป็นเจ้าของงบไม่ได้');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"draft"}}]')$$, 'ธุรการสร้างร่างงบให้ Business ไม่ได้', 'ธุรการสร้างงบไม่ได้');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":0,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"draft"}}]')$$, 'ธุรการสร้างร่างงบให้ Business ไม่ได้', 'ธุรการสร้างงบไม่ได้');
 select pg_temp.as_user(5);
-select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"draft"}}]');
-select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"review"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":0,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"draft"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":1,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"review"}}]');
 select pg_temp.as_user(9);
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"active"}}]')$$, 'ธุรการเปิดใช้งบ (active) ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"review","by":"ast"}}]')$$, 'ธุรการแก้งบที่ยังไม่เปิดใช้ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"active"}}]')$$, 'ธุรการเปิดใช้งบ (active) ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"review","by":"ast"}}]')$$, 'ธุรการแก้งบที่ยังไม่เปิดใช้ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"rBad","version":0,"data":{"budgetId":"bP1","requesterId":"00000000-0000-0000-0000-000000000005"}}]')$$, 'ธุรการทำคำขอเบิกบนงบที่ยังไม่เปิดใช้ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
 select public.v2_save_docs('[{"kind":"request","id":"rP","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005","proxyBy":"00000000-0000-0000-0000-000000000009"}}]');
 select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') like '%rP%', 'ธุรการทำคำขอเบิกในนามเจ้าของงบได้');
 select pg_temp.as_user(5);
 select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') like '%rP%', 'Business เจ้าของงบเห็นคำขอที่ธุรการทำแทน');
 select pg_temp.as_user(2);
-select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"pending_open"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":2,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"pending_open"}}]');
 select pg_temp.as_user(9);
-select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":3,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review"}}]')$$, 'ธุรการส่ง Memo ขอเปิดใช้งบแทน Business ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
+select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":3,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review"}}]')$$, 'ธุรการส่ง Memo ขอเปิดใช้งบแทน Business ไม่ได้', 'เฉพาะงบที่เปิดใช้งานแล้ว');
 select pg_temp.as_user(5);
-select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":3,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":3,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review"}}]');
 select pg_temp.as_user(10);
 select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%bP1%', 'บัญชี PBI เห็นงบของบริษัทตัวเอง');
-select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":4,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review","gl":"510101"}}]');
+select public.v2_save_docs('[{"kind":"budget","id":"bP1","version":4,"data":{"company":"PBI","department":"ฝ่ายวิศวกรรม","ownerId":"00000000-0000-0000-0000-000000000005","code":"P1","state":"open_review","gl":"510101"}}]');
 select pg_temp.ok((select x -> 'data' ->> 'gl' from jsonb_array_elements(public.v2_load() -> 'docs') x where x ->> 'id' = 'bP1') = '510101', 'บัญชีบันทึก GL ในเอกสารงบได้');
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"rQ","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005"}}]')$$, 'บัญชีสร้างคำขอเบิกไม่ได้', 'ไม่มีสิทธิ์บันทึกเอกสารชนิดนี้');
 
