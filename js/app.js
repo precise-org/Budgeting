@@ -1145,9 +1145,10 @@
   /** ทำงานในนามเจ้าของงบ: เจ้าของงบเอง หรือธุรการในขอบเขตบริษัท */
   /**
    * ธุรการช่วยงานเฉพาะ Business ที่ Admin แท็กให้ (proxyFor = รายการ id ผู้ใช้) ในบริษัทที่บัญชีมีสิทธิ์ — ธุรการแก้เองไม่ได้ ·
-   * ไม่ได้แท็กใครเลย = ไม่เห็นงบของใคร (ฐานข้อมูลบังคับเหมือนกัน — v2_profiles.proxy_for)
+   * ยังไม่ได้แท็กใครเลย (รายการว่าง) = เห็นและทำแทนได้ทั้งบริษัทไปก่อน (ฐานข้อมูลบังคับเหมือนกัน — v2_profiles.proxy_for)
    */
-  const proxyOf = (b) => !!b && isProxy() && budgetScoped(b) && (me().proxyFor || []).includes(b.ownerId);
+  const proxyTags = () => (me().proxyFor || []);
+  const proxyOf = (b) => !!b && isProxy() && budgetScoped(b) && (!proxyTags().length || proxyTags().includes(b.ownerId));
   const actsFor = (b) => !!b && (b.ownerId === me().id || proxyOf(b));
   const roleLabel = (u) => (u && (u.roleName || rolesOf(u).map((k) => ROLE_LABEL[k] || k).join(', '))) || '';
   /** เลือกเป็น Business เจ้าของงบได้: ต้องขอเบิกได้ และไม่ใช่ธุรการ (ธุรการเปิดใช้งบไม่ได้) */
@@ -1787,7 +1788,7 @@
     const structure = setup ? (v.structure || 'items') : 'items'; // Business / ธุรการ: แยก Item เสมอ — งบรวมเป็นของผู้คุมงบ (ต้องแตกเป็น Item ก่อนเปิดใช้)
     const projItem = structure === 'project' && v.items[0] ? v.items[0] : {};
     const rows = structure !== 'project' && v.items.length ? mainItems(v) : [{}];
-    const requesters = USERS.filter(canRequestUser).filter((x) => setup || !isProxy() || (me().proxyFor || []).includes(x.id)); // ธุรการเลือกได้เฉพาะ Business ที่ถูกแท็ก
+    const requesters = USERS.filter(canRequestUser).filter((x) => setup || !isProxy() || !proxyTags().length || proxyTags().includes(x.id)); // ธุรการที่แท็กแล้วเลือกได้เฉพาะ Business ที่ถูกแท็ก (ยังไม่แท็ก = ทุกคนในบริษัท)
     const field = (label, inner, extra) => '<label class="field"' + (extra || '') + '><span>' + label + '</span>' + inner + '</label>';
     const select = (name, inner, attrs) => '<div class="select-wrap"><select name="' + name + '"' + (attrs || '') + '>' + inner + '</select></div>';
     /** ชื่อช่องตามไฟล์ Governance: CAPEX / OPEX ใช้ชื่อต่างกัน (สลับตามประเภทงบที่เลือก) */
@@ -6629,7 +6630,7 @@
       roleKeys().map((k) => '<label class="chip"><input type="checkbox" name="roles" value="' + esc(k) + '"> ' + esc(ROLE_LABEL[k] || k) + '</label>').join('') + '</div></div>' +
       '<div class="field full" id="coField"><span>บริษัทที่ดูงบ / งานได้ (ผู้คุมงบ · จัดซื้อ — เลือกได้หลายบริษัท)</span><div class="actions" id="coChecks">' +
       db.master.companies.map((c) => '<label class="chip"><input type="checkbox" name="companies" value="' + esc(c.code) + '"> ' + esc(c.code) + '</label>').join('') + '</div></div>' +
-      '<div class="field full" id="proxyField" style="display:none"><span>ช่วยงานให้ Business (ธุรการ — เห็นและทำแทนเฉพาะงบของคนที่เลือก · ไม่เลือกเลย = ไม่เห็นงบของใคร)</span><div class="actions" id="proxyChecks">' +
+      '<div class="field full" id="proxyField" style="display:none"><span>ช่วยงานให้ Business (ธุรการ — เห็นและทำแทนเฉพาะงบของคนที่เลือก · ไม่เลือกเลย = เห็นทั้งบริษัทไปก่อน)</span><div class="actions" id="proxyChecks">' +
       USERS.filter((x) => canRequestUser(x) && x.active !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'th')).map((x) => '<label class="chip"><input type="checkbox" name="proxyFor" value="' + esc(x.id) + '"> ' + esc(x.name) + (x.department ? ' · ' + esc(x.department) : '') + '</label>').join('') + '</div></div>' +
       '</div><div class="muted section-hint" id="userFormHint">ผู้ดูแลระบบไม่ตั้งรหัสผ่านให้ — ผู้ใช้เข้าหน้าล็อกอิน → "' + (AUTH_REMOTE ? 'เปิดใช้ครั้งแรก' : 'ตั้งรหัสผ่าน') + '" แล้วกรอกอีเมลนี้เพื่อตั้งรหัสผ่านเอง</div>' +
       '<div class="actions"><button class="btn primary" type="submit">บันทึก</button><button class="btn" type="button" data-user-cancel>ยกเลิก</button></div></form></div></div></div>';
