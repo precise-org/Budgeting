@@ -5570,9 +5570,16 @@
       '<tr><th colspan="' + ((isCapex && !withCat && !perItem ? 3 : 4) + (withSup ? 1 : 0)) + '" class="right">รวมทั้งสิ้น</th><td class="num">' + money(r.amountBeforeVat) + '</td><td class="num">' + money(r.vat) +
       '</td><td class="num"><strong>' + money(r.amount) + '</strong></td></tr></tbody></table></div>';
 
-    const signs = '<div class="signs"><div><div class="line"></div>ผู้ขอใช้งบประมาณ<br>' + esc(userName(r.requesterId)) + '</div>' +
-      r.steps.map((s) => '<div><div class="line"></div>' + esc((user(s.by) || {}).title || '') + '<br>' + esc(userName(s.by)) + '<br><small>' + fmtDay(s.at) + '</small></div>').join('') +
-      '</div>';
+    // ท้ายกระดาษ: ใบเบิกใช้งบอนุมัติในระบบแล้ว ไม่ต้องเซ็น — แสดงว่าใครสร้าง ใครอนุมัติ เมื่อไร (พิมพ์แนบงานอื่นต่อได้เลย)
+    const who = (id) => { const x = user(id); return x ? esc(x.name) + (x.title ? '<br><small>' + esc(x.title) + '</small>' : '') : esc(userName(id)); };
+    const approved = (r.steps || []).filter((x) => x.status === 'approved' && x.by);
+    const trail = [['สร้างคำขอ', who(r.requesterId) + (r.proxyBy ? '<br><small>ทำแทนโดย ' + esc(userName(r.proxyBy)) + '</small>' : ''), fmtDate(r.createdAt)]]
+      .concat(approved.length
+        ? approved.map((x) => ['อนุมัติ' + (x.label ? ' (' + esc(x.label) + ')' : ''), who(x.by), fmtDate(x.at)])
+        : [['อนุมัติ (ผู้คุมงบตรวจสอบ)', '-', fmtDate(r.approvedAt)]]);
+    const signs = '<div class="section approval-trail"><h2>การอนุมัติในระบบ</h2><table><thead><tr><th style="width:26%">ขั้นตอน</th><th>ผู้ดำเนินการ</th><th style="width:24%">วันที่ / เวลา</th></tr></thead><tbody>' +
+      trail.map((t) => '<tr><td>' + t[0] + '</td><td>' + t[1] + '</td><td>' + t[2] + '</td></tr>').join('') + '</tbody></table>' +
+      '<p class="note">เอกสารนี้ผ่านการตรวจสอบและอนุมัติในระบบแล้ว ไม่ต้องลงนาม · เลขที่ ' + esc(r.docNo) + ' · พิมพ์โดย ' + esc(me().name) + ' เมื่อ ' + fmtDate(new Date().toISOString()) + '</p></div>';
 
     return '<div class="actions no-print" style="margin:0 0 1rem">' +
       '<button class="btn primary" onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button></div>' +

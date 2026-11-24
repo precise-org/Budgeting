@@ -439,6 +439,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--primary); cu
 .doc .num-cell { display: block; text-align: right; font-variant-numeric: tabular-nums; }
 .doc .center { text-align: center; font-size: 15px; }
 .doc .signs small { color: #444; }
+@media print { .doc .approval-trail { page-break-inside: avoid; } }
 .doc .neg { color: #b00; }
 
 /* พิมพ์: margin 0 ทำให้เบราว์เซอร์ไม่พิมพ์วันที่ / ชื่อหน้า / URL (header-footer) — เว้นขอบด้วย padding ของเอกสาร ซ้ำทุกหน้าด้วย box-decoration-break */
