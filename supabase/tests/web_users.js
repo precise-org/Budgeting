@@ -44,7 +44,7 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
   await go(a, '#/admin');
   await a.click('tr[data-uid="' + bizId + '"] [data-user-edit]');
   const vis = async (id) => a.$eval('#' + id, e => e.style.display !== 'none');
-  ok(await vis('affilField') && !(await vis('deptMultiField')) && !(await vis('coField')) && !(await vis('proxyField')), 'business: affil only');
+  ok(await vis('affilField') && !(await vis('deptMultiField')) && !(await vis('coField')), 'business: affil only');
   const opts = await a.$$eval('#userForm [name=department] option', e => e.map(x => x.value));
   ok(opts.includes('PBI101') && !opts.includes('ฝ่ายโครงการ'), 'dept list filtered by company PBI: ' + opts.join());
   await a.selectOption('#userForm [name=company]', 'PCC');
@@ -61,7 +61,11 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
 
   // ---- ธุรการ: หลายหน่วยงาน + บริษัทที่รับผิดชอบ
   await a.click('tr[data-uid="' + astId + '"] [data-user-edit]');
-  ok(!(await vis('affilField')) && await vis('deptMultiField') && await vis('coField') && await vis('proxyField'), 'assistant: multi dept + companies + proxy');
+  ok(!(await vis('affilField')) && await vis('deptMultiField') && !(await vis('coField')) && !(await a.$('#proxyField')), 'assistant: multi dept only (no companies, no pick-a-person field)');
+  const groups = await a.$$eval('#deptChecks .muted', (e) => e.map((x) => x.innerText));
+  ok(groups.some((g) => /^PBI/.test(g)) && groups.some((g) => /^PCC/.test(g)), 'assistant departments grouped under companies: ' + groups.join(' | '));
+  await a.click('#userForm button[type=submit]'); await a.waitForTimeout(400);
+  ok(/เลือกหน่วยงานที่ธุรการช่วยงาน/.test(await a.evaluate(() => document.getElementById('userFormError').innerText)), 'assistant requires at least one department');
   await a.check('#userForm [name=departments][value=PBI101]'); await a.check('#userForm [name=departments][value=PBI104]');
   await a.click('#userForm button[type=submit]'); await a.waitForTimeout(900);
   const as = (await sql('select departments, companies from public.v2_profiles where id=$1', [astId]))[0];
@@ -69,7 +73,7 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
 
   // ---- ผู้คุมงบ: บริษัทที่รับผิดชอบเท่านั้น
   await a.click('tr[data-uid="' + ctlId + '"] [data-user-edit]');
-  ok(!(await vis('affilField')) && !(await vis('deptMultiField')) && await vis('coField') && !(await vis('proxyField')), 'controller: companies only');
+  ok(!(await vis('affilField')) && !(await vis('deptMultiField')) && await vis('coField'), 'controller: companies only');
   await a.uncheck('#userForm [name=companies][value=PBI]');
   await a.click('#userForm button[type=submit]'); await a.waitForTimeout(400);
   ok(/เลือกบริษัทที่รับผิดชอบ/.test(await a.evaluate(() => document.getElementById('userFormError').innerText)), 'controller requires companies');
