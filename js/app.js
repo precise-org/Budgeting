@@ -1121,7 +1121,14 @@
   const ownerText = (b) => (b.ownerId ? userName(b.ownerId) : (b.ownerName || ''));
   const ownerLabel = (b) => (b.ownerId ? userName(b.ownerId) : (b.ownerName ? b.ownerName + ' (ยังไม่ผูกกับผู้ใช้)' : '-'));
   const me = () => (REMOTE ? remoteMe : (user(currentUserId) || USERS[0]));
-  const permsOf = (u) => (u && (u.perms || uniq(rolesOf(u).flatMap((k) => DEMO_ROLE_PERMS[k] || [])))) || [];
+  /**
+   * สิทธิ์ของผู้ใช้ (รวมทุกบทบาท) · ธุรการ (business.proxy) ทำเอกสารแทน Business ได้ → ได้สิทธิ์ขอเบิก / ขอเพิ่มงบ (request.create) โดยอัตโนมัติ
+   * (กันตั้งสิทธิ์บทบาทไม่ครบแล้วเมนูงบประมาณ / รายการเบิกหาย ทำเบิกใช้งบไม่ได้) — ฐานข้อมูลตรวจธุรการด้วย business.proxy อยู่แล้ว
+   */
+  const permsOf = (u) => {
+    const base = (u && (u.perms || uniq(rolesOf(u).flatMap((k) => DEMO_ROLE_PERMS[k] || [])))) || [];
+    return base.includes('business.proxy') && !base.includes('request.create') ? base.concat('request.create') : base;
+  };
   const can = (perm) => permsOf(me()).includes(perm);
   /** เห็นงบและคำขอของทุกคน (สิทธิ์ดูทั้งหมด หรือสิทธิ์ที่ต้องทำงานกับเอกสารของคนอื่น) */
   /**
