@@ -7775,7 +7775,7 @@
   // ข้อมูลหลัก (db.master) ไม่อยู่ในชั้นนี้ — เก็บแยกที่ v2_master (loadRemoteMaster / bindMaster)
   // แอปแก้ข้อมูลใน db แล้วเรียก save() ตามเดิม → save() ตั้งเวลาให้ syncPush() ส่งเฉพาะเอกสารที่เปลี่ยน (เทียบกับ snapshot ล่าสุดที่ตรงกับเซิร์ฟเวอร์)
   // เลขเวอร์ชันสคีมาที่เว็บนี้ต้องการ — ต้องเท่ากับ v2_schema_version() ใน supabase/schema_v2b.sql (ตรวจด้วย supabase/tests/check_schema.js)
-  const SCHEMA_VERSION = 5;
+  const SCHEMA_VERSION = 6;
   let schemaStale = false; // ฐานข้อมูลยังไม่ได้รันสคีมาล่าสุด → แสดงแถบเตือน
   async function checkSchemaVersion() {
     try {
