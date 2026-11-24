@@ -1212,3 +1212,6 @@ button.link { color: var(--brand); }
 .edit-table .dept-row td:first-child { padding-left: var(--s-5); white-space: nowrap; }
 .edit-table .dept-add-row td { padding-bottom: var(--s-3); }
 .edit-table .dept-unassigned-head td { padding: var(--s-3) var(--s-2); }
+
+/* ช่องค้นหาในตาราง (enhanceSearchableTables): ใช้ .admin-filters / .input-wrap.search เดิม เพิ่มเฉพาะการจัดวางตัวนับ */
+.table-search .search-count { align-self: center; font-size: var(--fs-sm); }
