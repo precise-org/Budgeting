@@ -801,12 +801,12 @@
     masterOnline = true;
     masterError = '';
     g = g || {};
-    MASTER_NAV.forEach(([k]) => {
+    MASTER_SECTIONS.map((x) => x.key).forEach((k) => {
       if (g[k] && Array.isArray(g[k].items)) { db.master[k] = g[k].items; masterMeta[k] = g[k].updatedAt || null; } else masterMeta[k] = null;
     });
     db = ensureMaster(db);
     if (can('master.manage')) {
-      for (const [k] of MASTER_NAV) {
+      for (const k of MASTER_SECTIONS.map((x) => x.key)) {
         if (masterMeta[k] !== null) continue;
         try {
           const r = await window.RemoteApi.v2MasterSave(k, db.master[k], null);
@@ -5793,7 +5793,7 @@
 
   /** รายการข้อมูลหลัก: cols[0] เป็นรหัส/ชื่อที่ใช้อ้างอิง — รหัส (lock) แก้ไม่ได้หลังสร้าง, ชื่อที่ใช้อ้างอิง (เช่น หน่วยงาน) เปลี่ยนแล้วระบบแก้ให้ทุกงบ */
   const MASTER_SECTIONS = [
-    { key: 'companies', title: 'บริษัท', hint: 'ใช้กับงบทุกประเภท · Memo ทำครั้งเดียวตอนขอเปิดใช้งบ (CAPEX) — การเบิกใช้ครั้งต่อไปไม่ต้องทำ Memo ระบบคุมตามวงเงินที่เปิดใช้', lock: true,
+    { key: 'companies', title: 'บริษัทและหน่วยงาน', hint: 'หน่วยงานอยู่ใต้บริษัท (บรรทัดย่อยของบริษัท) — ชื่อหน่วยงานต้องไม่ซ้ำกันทั้งระบบ · งบจะขึ้นเป็นหน่วยงานของเจ้าของงบ (เลือกบริษัทของงบเป็นบริษัทอื่นได้ ไม่ผูกกับบริษัทของหน่วยงาน) · ใช้กับงบทุกประเภท · Memo ทำครั้งเดียวตอนขอเปิดใช้งบ (CAPEX) — การเบิกใช้ครั้งต่อไปไม่ต้องทำ Memo ระบบคุมตามวงเงินที่เปิดใช้', lock: true,
       cols: [{ k: 'code', label: 'รหัสบริษัท', w: '10rem' }, { k: 'name', label: 'ชื่อบริษัท' }, 
         { k: 'logo', label: 'โลโก้หัวกระดาษ Memo', type: 'image', w: '14rem' }],
       inUse: (it) => db.budgets.some((b) => b.company === it.code) },
@@ -5822,7 +5822,7 @@
   ];
 
   /** เมนูย่อยของข้อมูลหลัก: [key, ชื่อเมนู] */
-  const MASTER_NAV = [['companies', 'บริษัท'], ['departments', 'หน่วยงาน'], ['suppliers', 'Supplier'], ['listGroups', 'กลุ่มรายการ'], ['priorityGroups', 'กลุ่ม Priority'], ['investGroups', 'กลุ่ม Priority การลงทุน']];
+  const MASTER_NAV = [['companies', 'บริษัทและหน่วยงาน'], ['suppliers', 'Supplier'], ['listGroups', 'กลุ่มรายการ'], ['priorityGroups', 'กลุ่ม Priority'], ['investGroups', 'กลุ่ม Priority การลงทุน']];
 
   function masterRow(sec, it, isNew) {
     return '<tr data-orig="' + (isNew ? '' : esc(it[sec.cols[0].k])) + '">' + sec.cols.map((c, i) => (c.type === 'image'
@@ -5838,17 +5838,47 @@
       '<td style="width:3rem"><button type="button" class="btn small bad" data-m-remove title="ลบ">×</button></td></tr>';
   }
 
+
+  // ---- บริษัท + หน่วยงาน (หน่วยงานเป็นบรรทัดย่อยของบริษัท) ----------------------------------
+  const DEPT_SEC = () => MASTER_SECTIONS.find((x) => x.key === 'departments');
+  /** บรรทัดหน่วยงาน (บรรทัดย่อย) — unassigned = หน่วยงานเดิมที่ยังไม่ระบุบริษัท: เลือกบริษัทให้ครบก่อนบันทึก */
+  function deptSubRow(d, unassigned) {
+    const co = unassigned
+      ? '<td><div class="select-wrap"><select data-k="company" aria-label="บริษัทของหน่วยงาน">' + [['', '— เลือกบริษัท —']].concat(db.master.companies.map((c) => [c.code, c.code + (c.name ? ' — ' + c.name : '')])).map(([v, t]) => opt(v, t, '')).join('') + '</select></div></td>'
+      : '<td></td>';
+    return '<tr class="dept-row" data-orig="' + esc((d && d.name) || '') + '"' + (unassigned ? ' data-unassigned="1"' : '') + '><td class="dept-mark"><span class="muted">↳ หน่วยงาน</span></td>' +
+      '<td><input data-k="dept" value="' + esc((d && d.name) || '') + '" aria-label="ชื่อหน่วยงาน" placeholder="ชื่อหน่วยงาน"></td>' + co +
+      '<td style="width:3rem"><button type="button" class="btn small bad" data-m-remove title="ลบหน่วยงาน">×</button></td></tr>';
+  }
+  const DEPT_ADD_ROW = '<tr class="dept-add-row"><td></td><td colspan="3"><button type="button" class="btn small" data-dept-add>+ เพิ่มหน่วยงาน</button></td></tr>';
+  function companyGroupHtml(sec, c, isNew) {
+    const depts = isNew ? [] : db.master.departments.filter((d) => d.company === c.code);
+    return masterRow(sec, c, isNew).replace('<tr ', '<tr class="co-row" ') + depts.map((d) => deptSubRow(d, false)).join('') + DEPT_ADD_ROW;
+  }
+  function companiesSection(sec) {
+    const known = new Set(db.master.companies.map((c) => c.code));
+    const loose = db.master.departments.filter((d) => !known.has(d.company));
+    return '<section class="card form-section"><div class="section-head"><div><h2 class="section-title">' + sec.title + '</h2><div class="muted section-hint">' + sec.hint + '</div></div></div>' +
+      '<form class="master-form" data-key="companies"><div class="table-wrap"><table class="edit-table"><thead><tr>' +
+      sec.cols.map((c) => '<th>' + c.label + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+      db.master.companies.map((c) => companyGroupHtml(sec, c, false)).join('') +
+      (loose.length ? '<tr class="dept-unassigned-head"><td colspan="4"><div class="alert warn small">หน่วยงานที่ยังไม่ระบุบริษัท — เลือกบริษัทของหน่วยงานให้ครบก่อนบันทึก</div></td></tr>' + loose.map((d) => deptSubRow(d, true)).join('') : '') +
+      '</tbody></table></div>' +
+      '<template id="tplCompany">' + companyGroupHtml(sec, {}, true) + '</template><template id="tplDept">' + deptSubRow(null, false) + '</template>' +
+      '<div class="actions"><button type="button" class="btn" data-co-add>+ เพิ่มบริษัท</button><button class="btn primary" type="submit">บันทึกบริษัทและหน่วยงาน</button></div></form></section>';
+  }
+
   function viewMaster(sub) {
     if (!can('master.manage')) return '<div class="alert error">ไม่มีสิทธิ์จัดการข้อมูลหลัก</div>';
     const key = MASTER_NAV.some(([k]) => k === sub) ? sub : MASTER_NAV[0][0];
     const navTitle = MASTER_NAV.find(([k]) => k === key)[1];
-    const sections = MASTER_SECTIONS.filter((sec) => sec.key === key).map((sec) => '<section class="card form-section"><div class="section-head"><div><h2 class="section-title">' + sec.title +
+    const sections = MASTER_SECTIONS.filter((sec) => sec.key === key).map((sec) => (sec.key === 'companies' ? companiesSection(sec) : '<section class="card form-section"><div class="section-head"><div><h2 class="section-title">' + sec.title +
       '</h2><div class="muted section-hint">' + sec.hint + '</div></div></div>' +
       '<form class="master-form" data-key="' + sec.key + '"><div class="table-wrap"><table class="edit-table"><thead><tr>' +
       sec.cols.map((c) => '<th>' + c.label + '</th>').join('') + '<th></th></tr></thead><tbody>' +
       db.master[sec.key].map((it) => masterRow(sec, it, false)).join('') + '</tbody></table></div>' +
       '<template>' + masterRow(sec, {}, true) + '</template>' +
-      '<div class="actions"><button type="button" class="btn" data-m-add>+ เพิ่ม</button><button class="btn primary" type="submit">บันทึก' + sec.title + '</button></div></form></section>').join('');
+      '<div class="actions"><button type="button" class="btn" data-m-add>+ เพิ่ม</button><button class="btn primary" type="submit">บันทึก' + sec.title + '</button></div></form></section>')).join('');
 
     return '<div class="page-head"><div><h1>' + esc(navTitle) + '</h1><div class="page-sub">ข้อมูลหลัก — ค่าที่ใช้เป็นตัวเลือกในฟอร์มและรายงาน</div></div></div>' + takeFlash() +
       (AUTH_REMOTE ? (masterOnline
@@ -5858,32 +5888,155 @@
       '</div>';
   }
 
-  function bindMaster() {
-    document.querySelectorAll('.master-form').forEach((form) => {
-      const sec = MASTER_SECTIONS.find((x) => x.key === form.dataset.key);
-      const tbody = form.querySelector('tbody');
-      // โลโก้: อ่านรูปเป็น data URL (ไม่เกิน 300 KB)
-      form.addEventListener('change', (e) => {
-        if (!e.target.matches('[data-logo-file]')) return;
-        const file = e.target.files[0];
-        const cell = e.target.closest('.logo-cell');
-        e.target.value = '';
-        if (!file) return;
-        if (file.size > 300 * 1024) { alert('รูปโลโก้ต้องไม่เกิน 300 KB'); return; }
-        const rd = new FileReader();
-        rd.onload = () => {
-          cell.querySelector('input[type="hidden"]').value = rd.result;
-          cell.querySelector('.logo-prev').innerHTML = '<img src="' + esc(rd.result) + '" alt="">';
-        };
-        rd.readAsDataURL(file);
-      });
-      form.addEventListener('click', (e) => {
-        if (e.target.matches('[data-logo-clear]')) {
-          const cell = e.target.closest('.logo-cell');
-          cell.querySelector('input[type="hidden"]').value = '';
-          cell.querySelector('.logo-prev').innerHTML = '<span class="muted">ไม่มี</span>';
+  /** บันทึกข้อมูลหลัก 1 รายการ (key) ตามโหมด — คืน true เมื่อสำเร็จ · ล้มเหลวแล้วแสดงข้อผิดพลาด/พากลับหน้า คืน false · rows = แถวที่มี orig (ชื่อ/รหัสเดิม) ไว้เปลี่ยนชื่อที่งบ */
+  async function saveMasterData(sec, data, rows, returnTo) {
+    const keyCol = sec.cols[0].k;
+    if (REMOTE) {
+      const renames = sec.rename ? rows.filter((it) => it.orig && it.orig !== it[keyCol]).map((it) => ({ from: it.orig, to: it[keyCol] })) : [];
+      return !!(await runAndReload(() => window.RemoteApi.saveMaster(sec.key, data, renames)));
+    }
+    if (AUTH_REMOTE) {
+      // โหมด Supabase: บันทึกที่เซิร์ฟเวอร์ก่อน สำเร็จแล้วค่อยแก้ชื่อที่งบในเครื่อง
+      if (!masterOnline && !(await loadRemoteMaster().then(() => masterOnline, () => false))) { showErrors(['เชื่อมข้อมูลหลักกับเซิร์ฟเวอร์ไม่ได้ — ' + (masterError || 'ลองใหม่อีกครั้ง')]); return false; }
+      let res = null;
+      document.body.classList.add('busy');
+      try {
+        res = { value: await window.RemoteApi.v2MasterSave(sec.key, data, masterMeta[sec.key] || null) };
+      } catch (ex) {
+        if (ex && ex.code === 'AUTH') { showLoginDemo('login', { error: ex.message }); return false; }
+        // เช่น มีคนอื่นแก้ไปก่อน: โหลดค่าล่าสุดมาแสดง แล้วบอกให้แก้อีกครั้ง
+        await loadRemoteMaster().catch(() => false);
+        setFlash('error', (ex && ex.message) || 'บันทึกข้อมูลหลักไม่สำเร็จ');
+        go(returnTo);
+        return false;
+      } finally {
+        document.body.classList.remove('busy');
+      }
+      if (sec.rename) rows.forEach((it) => { if (it.orig && it.orig !== it[keyCol]) sec.rename(it.orig, it[keyCol]); });
+      db.master[sec.key] = res.value.items;
+      masterMeta[sec.key] = res.value.updatedAt;
+      save();
+      return true;
+    }
+    if (sec.rename) rows.forEach((it) => { if (it.orig && it.orig !== it[keyCol]) sec.rename(it.orig, it[keyCol]); });
+    db.master[sec.key] = data;
+    save();
+    return true;
+  }
+
+  /** โลโก้บริษัท: อ่านรูปเป็น data URL (ไม่เกิน 300 KB) · ปุ่มลบโลโก้ */
+  function bindLogoCells(form) {
+    form.addEventListener('change', (e) => {
+      if (!e.target.matches('[data-logo-file]')) return;
+      const file = e.target.files[0];
+      const cell = e.target.closest('.logo-cell');
+      e.target.value = '';
+      if (!file) return;
+      if (file.size > 300 * 1024) { alert('รูปโลโก้ต้องไม่เกิน 300 KB'); return; }
+      const rd = new FileReader();
+      rd.onload = () => {
+        cell.querySelector('input[type="hidden"]').value = rd.result;
+        cell.querySelector('.logo-prev').innerHTML = '<img src="' + esc(rd.result) + '" alt="">';
+      };
+      rd.readAsDataURL(file);
+    });
+    form.addEventListener('click', (e) => {
+      if (!e.target.matches('[data-logo-clear]')) return;
+      const cell = e.target.closest('.logo-cell');
+      cell.querySelector('input[type="hidden"]').value = '';
+      cell.querySelector('.logo-prev').innerHTML = '<span class="muted">ไม่มี</span>';
+    });
+  }
+
+  /** ฟอร์ม "บริษัทและหน่วยงาน": บริษัท 1 บรรทัด + หน่วยงานเป็นบรรทัดย่อยใต้บริษัท · เพิ่ม/ลบได้ทั้งสองระดับ · บันทึกรวม (บริษัทก่อน แล้วหน่วยงาน) */
+  function bindCompaniesForm(form) {
+    const coSec = MASTER_SECTIONS.find((x) => x.key === 'companies');
+    const deptSec = DEPT_SEC();
+    const tbody = form.querySelector('tbody');
+    const back = '#/master/companies';
+    bindLogoCells(form);
+    const groupRows = (coRow) => { const out = []; let n = coRow.nextElementSibling; while (n && !n.matches('.co-row, .dept-unassigned-head')) { out.push(n); n = n.nextElementSibling; } return out; };
+    form.addEventListener('click', (e) => {
+      if (e.target.matches('[data-co-add]')) {
+        const head = tbody.querySelector('.dept-unassigned-head');
+        const frag = document.createElement('tbody');
+        frag.innerHTML = form.querySelector('#tplCompany').innerHTML;
+        Array.from(frag.children).forEach((tr) => tbody.insertBefore(tr, head));
+        tbody.querySelectorAll('.co-row')[tbody.querySelectorAll('.co-row').length - 1].querySelector('input:not([type="hidden"])').focus();
+      } else if (e.target.matches('[data-dept-add]')) {
+        const addRow = e.target.closest('tr');
+        const frag = document.createElement('tbody');
+        frag.innerHTML = form.querySelector('#tplDept').innerHTML;
+        const tr = frag.firstElementChild;
+        addRow.parentNode.insertBefore(tr, addRow);
+        tr.querySelector('input').focus();
+      } else if (e.target.matches('[data-m-remove]')) {
+        const tr = e.target.closest('tr');
+        const orig = tr.dataset.orig;
+        if (tr.matches('.dept-row')) {
+          const item = orig && db.master.departments.find((x) => x.name === orig);
+          if (item && deptSec.inUse(item)) { alert('ลบไม่ได้ — "' + orig + '" ถูกใช้อยู่ในงบหรือมีผู้ใช้สังกัดอยู่แล้ว'); return; }
+          tr.remove();
           return;
         }
+        // ลบบริษัท: ต้องไม่มีหน่วยงานเหลืออยู่ใต้บริษัทนี้ และไม่ถูกใช้ในงบ
+        const rest = groupRows(tr);
+        if (rest.some((x) => x.matches('.dept-row'))) { alert('ลบบริษัทไม่ได้ — ยังมีหน่วยงานอยู่ใต้บริษัทนี้ (ลบหน่วยงานก่อน)'); return; }
+        const item = orig && db.master.companies.find((x) => x.code === orig);
+        if (item && coSec.inUse(item)) { alert('ลบไม่ได้ — "' + orig + '" ถูกใช้อยู่ในงบหรือเอกสารแล้ว'); return; }
+        rest.forEach((x) => x.remove());
+        tr.remove();
+      }
+    });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const coRows = [], deptRows = [];
+      const errors = [];
+      let cur = null;
+      Array.from(tbody.rows).forEach((tr) => {
+        if (tr.matches('.co-row')) {
+          const it = { orig: tr.dataset.orig };
+          coSec.cols.forEach((c) => { it[c.k] = tr.querySelector('[data-k="' + c.k + '"]').value.trim(); });
+          cur = it;
+          if (it.code || it.orig) coRows.push(it);
+        } else if (tr.matches('.dept-unassigned-head')) {
+          cur = null;
+        } else if (tr.matches('.dept-row')) {
+          const name = tr.querySelector('[data-k="dept"]').value.trim();
+          const sel = tr.querySelector('[data-k="company"]');
+          const company = sel ? sel.value : (cur ? cur.code : '');
+          if (!name && !tr.dataset.orig) return;
+          if (!name) { errors.push('กรุณากรอกชื่อหน่วยงานให้ครบ'); return; }
+          if (!company) errors.push(sel ? 'เลือกบริษัทของหน่วยงาน "' + name + '"' : 'กรอกรหัสบริษัทก่อนเพิ่มหน่วยงาน "' + name + '"');
+          deptRows.push({ orig: tr.dataset.orig, name, company });
+        }
+      });
+      if (!coRows.length) errors.push('ต้องมีอย่างน้อย 1 บริษัท');
+      coRows.forEach((it) => { if (!it.code) errors.push('กรุณากรอกรหัสบริษัท'); });
+      const codes = coRows.map((it) => it.code.toLowerCase());
+      if (codes.some((k, i) => k && codes.indexOf(k) !== i)) errors.push('รหัสบริษัทซ้ำกัน');
+      const names = deptRows.map((it) => it.name.toLowerCase());
+      if (names.some((k, i) => names.indexOf(k) !== i)) errors.push('ชื่อหน่วยงานซ้ำกัน (ชื่อหน่วยงานต้องไม่ซ้ำกันทั้งระบบ)');
+      // หน่วยงานที่มีผู้ใช้สังกัดอยู่ เปลี่ยนชื่อไม่ได้ (ผู้ใช้เก็บชื่อหน่วยงาน) — ย้ายผู้ใช้ก่อน
+      deptRows.filter((it) => it.orig && it.orig !== it.name && USERS.some((u) => deptsOf(u).includes(it.orig))).forEach((it) => errors.push('เปลี่ยนชื่อ "' + it.orig + '" ไม่ได้ — ยังมีผู้ใช้สังกัดหน่วยงานนี้ (แก้หน่วยงานของผู้ใช้ก่อน)'));
+      if (errors.length) { showErrors(uniq(errors)); return; }
+      const coData = coRows.map((it) => { const o = {}; coSec.cols.forEach((c) => { o[c.k] = it[c.k]; }); return o; });
+      const deptData = deptRows.map((it) => ({ name: it.name, company: it.company }));
+      const same = (key, data) => JSON.stringify(db.master[key]) === JSON.stringify(data);
+      // บริษัทก่อน แล้วหน่วยงาน — รายการที่ไม่เปลี่ยนไม่ต้องบันทึก (ลดโอกาสชนกับแอดมินคนอื่น)
+      if (!same('companies', coData) && !(await saveMasterData(coSec, coData, coRows, back))) return;
+      if (!same('departments', deptData) && !(await saveMasterData(deptSec, deptData, deptRows, back))) return;
+      setFlash('success', 'บันทึกบริษัทและหน่วยงานแล้ว');
+      go(back);
+    });
+  }
+
+  function bindMaster() {
+    document.querySelectorAll('.master-form').forEach((form) => {
+      if (form.dataset.key === 'companies') { bindCompaniesForm(form); return; }
+      const sec = MASTER_SECTIONS.find((x) => x.key === form.dataset.key);
+      const tbody = form.querySelector('tbody');
+      form.addEventListener('click', (e) => {
         if (e.target.matches('[data-m-add]')) {
           tbody.insertAdjacentHTML('beforeend', form.querySelector('template').innerHTML);
           tbody.lastElementChild.querySelector('input:not([type="hidden"])').focus();
@@ -5909,42 +6062,11 @@
         const errors = [];
         if (!rows.length && !sec.optional) errors.push('ต้องมีอย่างน้อย 1 รายการ');
         rows.forEach((it) => { if (!it[keyCol]) errors.push('กรุณากรอก' + sec.cols[0].label); });
-        sec.cols.filter((c) => c.required).forEach((c) => { if (rows.some((it) => it[keyCol] && !it[c.k])) errors.push('กรุณาเลือก' + c.label + 'ให้ครบทุกรายการ'); });
-        // หน่วยงานที่มีผู้ใช้สังกัดอยู่ เปลี่ยนชื่อไม่ได้ (ผู้ใช้เก็บชื่อหน่วยงาน) — ย้ายผู้ใช้ก่อน
-        if (sec.key === 'departments') rows.filter((it) => it.orig && it.orig !== it.name && USERS.some((u) => deptsOf(u).includes(it.orig))).forEach((it) => errors.push('เปลี่ยนชื่อ "' + it.orig + '" ไม่ได้ — ยังมีผู้ใช้สังกัดหน่วยงานนี้ (แก้หน่วยงานของผู้ใช้ก่อน)'));
         const keys = rows.map((it) => it[keyCol].toLowerCase());
         if (keys.some((k, i) => k && keys.indexOf(k) !== i)) errors.push(sec.cols[0].label + 'ซ้ำกัน');
         if (errors.length) { showErrors(errors); return; }
         const data = rows.map((it) => { const o = {}; sec.cols.forEach((c) => { o[c.k] = it[c.k]; }); return o; });
-        if (REMOTE) {
-          const renames = sec.rename ? rows.filter((it) => it.orig && it.orig !== it[keyCol]).map((it) => ({ from: it.orig, to: it[keyCol] })) : [];
-          if (!(await runAndReload(() => window.RemoteApi.saveMaster(sec.key, data, renames)))) return;
-        } else if (AUTH_REMOTE) {
-          // โหมด Supabase: บันทึกที่เซิร์ฟเวอร์ก่อน สำเร็จแล้วค่อยแก้ชื่อที่งบในเครื่อง
-          if (!masterOnline && !(await loadRemoteMaster().then(() => masterOnline, () => false))) { showErrors(['เชื่อมข้อมูลหลักกับเซิร์ฟเวอร์ไม่ได้ — ' + (masterError || 'ลองใหม่อีกครั้ง')]); return; }
-          let res = null;
-          document.body.classList.add('busy');
-          try {
-            res = { value: await window.RemoteApi.v2MasterSave(sec.key, data, masterMeta[sec.key] || null) };
-          } catch (ex) {
-            if (ex && ex.code === 'AUTH') { showLoginDemo('login', { error: ex.message }); return; }
-            // เช่น มีคนอื่นแก้ไปก่อน: โหลดค่าล่าสุดมาแสดง แล้วบอกให้แก้อีกครั้ง
-            await loadRemoteMaster().catch(() => false);
-            setFlash('error', (ex && ex.message) || 'บันทึกข้อมูลหลักไม่สำเร็จ');
-            go('#/master/' + sec.key);
-            return;
-          } finally {
-            document.body.classList.remove('busy');
-          }
-          if (sec.rename) rows.forEach((it) => { if (it.orig && it.orig !== it[keyCol]) sec.rename(it.orig, it[keyCol]); });
-          db.master[sec.key] = res.value.items;
-          masterMeta[sec.key] = res.value.updatedAt;
-          save();
-        } else {
-          if (sec.rename) rows.forEach((it) => { if (it.orig && it.orig !== it[keyCol]) sec.rename(it.orig, it[keyCol]); });
-          db.master[sec.key] = data;
-          save();
-        }
+        if (!(await saveMasterData(sec, data, rows, '#/master/' + sec.key))) return;
         setFlash('success', 'บันทึก' + sec.title + 'แล้ว');
         go('#/master/' + sec.key);
       });
