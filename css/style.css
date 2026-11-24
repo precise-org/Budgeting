@@ -1205,3 +1205,9 @@ button.link { color: var(--brand); }
 .role-list-card .actions { margin-top: var(--s-3); }
 .role-foot { justify-content: flex-end; align-items: center; }
 @media (max-width: 900px) { .role-split { grid-template-columns: 1fr; } }
+/* ข้อมูลหลัก → บริษัทและหน่วยงาน: หน่วยงานเป็นบรรทัดย่อยของบริษัท (ใช้ .edit-table เดิม เพิ่มเฉพาะระยะ/เส้นแบ่งกลุ่ม) */
+.edit-table .co-row:not(:first-child) td { border-top: 1px solid var(--line); }
+.edit-table .co-row input[data-k="name"] { font-weight: 600; }
+.edit-table .dept-row td:first-child { padding-left: var(--s-5); white-space: nowrap; }
+.edit-table .dept-add-row td { padding-bottom: var(--s-3); }
+.edit-table .dept-unassigned-head td { padding: var(--s-3) var(--s-2); }

@@ -43,6 +43,8 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   };
   // หน่วยงานต้องมีบริษัท: เติมบริษัทให้แถวที่ยังว่างก่อนกดบันทึก
   const fixCo = async (p) => { for (const sel of await p.$$('.master-form select[data-k=company]')) { if (!(await sel.inputValue())) await sel.selectOption('PBI'); } };
+  // หน่วยงานเป็นบรรทัดย่อยของบริษัท: กด "+ เพิ่มหน่วยงาน" ของบริษัทลำดับ idx แล้วพิมพ์ชื่อ (ช่องใหม่ได้ focus อัตโนมัติ)
+  const addDept = async (p, idx, name) => { await p.locator('[data-dept-add]').nth(idx).click(); await p.keyboard.type(name); };
   const go = async (p, h) => { await p.evaluate((x) => { location.hash = x; }, h); await p.waitForTimeout(400); };
   const keys = async () => (await sql('select key from public.v2_master order by key')).map((r) => r.key);
   const items = async (k) => (await sql('select items from public.v2_master where key = $1', [k]))[0].items;
@@ -56,13 +58,13 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   ok(hist0 === 6, 'history has 6 seed rows: ' + hist0);
 
   // ---- Admin แก้หน่วยงาน → ขึ้นเซิร์ฟเวอร์
-  await go(a1, '#/master/departments');
+  await go(a1, '#/master/companies');
   ok(!!(await a1.$('.alert.info')) && !(await a1.$('.alert.error')), 'master page shows server-backed notice');
-  await a1.click('[data-m-add]');
-  await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'ฝ่ายใหม่ (เฟส 2)');
+  await addDept(a1, 0, 'ฝ่ายใหม่ (เฟส 2)');
   await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(700);
-  ok((await items('departments')).some((d) => d.name === 'ฝ่ายใหม่ (เฟส 2)'), 'department saved on server');
+  const firstCo = (await items('companies'))[0].code;
+  ok((await items('departments')).some((d) => d.name === 'ฝ่ายใหม่ (เฟส 2)' && d.company === firstCo), 'department saved on server under its company');
   ok(/บันทึกหน่วยงานแล้ว|บันทึก/.test(await a1.textContent('#app')), 'success flash');
 
   // ---- ผู้ใช้อื่นเห็นค่าที่ Admin บันทึก (เครื่อง/เบราว์เซอร์คนละ context)
@@ -72,28 +74,25 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   await go(biz, '#/budget/new');
   const opts = await biz.$$eval('[name=department] option', (o) => o.map((x) => x.value));
   ok(opts.length === 1 && opts[0] === 'ฝ่ายใหม่ (เฟส 2)', 'business budget form offers only the owner own department: ' + opts.join('|'));
-  await go(biz, '#/master/departments');
+  await go(biz, '#/master/companies');
   ok(/ไม่มีสิทธิ์จัดการข้อมูลหลัก/.test(await biz.textContent('#app')), 'business cannot open master page');
 
   // ---- บันทึกทับกัน: Admin2 แก้ก่อน → Admin1 บันทึกด้วยค่าเก่าถูกปฏิเสธ
   const a2 = await open('admin2@example.com');
-  await go(a2, '#/master/departments');
-  await a2.click('[data-m-add]');
-  await a2.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin2');
+  await go(a2, '#/master/companies');
+  await addDept(a2, 0, 'โดย Admin2');
   await fixCo(a2);
   await a2.click('.master-form button[type=submit]'); await a2.waitForTimeout(700);
-  await a1.click('[data-m-add]');   // a1 ยังอยู่หน้าเดิมที่โหลดค่าเก่าไว้ (ก่อน Admin2 บันทึก)
-  await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin1');
+  await addDept(a1, 0, 'โดย Admin1');   // a1 ยังอยู่หน้าเดิมที่โหลดค่าเก่าไว้ (ก่อน Admin2 บันทึก)
   await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(900);
   const txt = await a1.textContent('#app');
   ok(/มีผู้อื่นแก้ข้อมูลหลักนี้ไปก่อน/.test(txt), 'stale save rejected with message');
   const deps = (await items('departments')).map((d) => d.name);
   ok(deps.includes('โดย Admin2') && !deps.includes('โดย Admin1'), 'server keeps the other admin change: ' + deps.join('|'));
-  ok((await a1.$$eval('.master-form input[data-k=name]', (x) => x.map((i) => i.value))).includes('โดย Admin2'), 'page reloaded with the latest list');
+  ok((await a1.$$eval('.master-form input[data-k=dept]', (x) => x.map((i) => i.value))).includes('โดย Admin2'), 'page reloaded with the latest list');
   // แก้ซ้ำหลังเห็นค่าล่าสุดได้
-  await a1.click('[data-m-add]');
-  await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin1');
+  await addDept(a1, 0, 'โดย Admin1');
   await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(700);
   ok((await items('departments')).some((d) => d.name === 'โดย Admin1'), 'second attempt saves');

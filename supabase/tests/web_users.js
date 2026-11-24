@@ -28,17 +28,39 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
   const go = async (p, h) => { await p.evaluate((x) => { location.hash = x; }, h); await p.waitForTimeout(600); };
   const a = await open('admin1@example.com');
 
-  // ---- ข้อมูลหลัก: หน่วยงานต้องมีบริษัท
-  await go(a, '#/master/departments');
-  const nsel = await a.$$eval('.master-form tbody tr select[data-k=company]', e => e.length);
-  ok(nsel >= 5, 'department rows have company select: ' + nsel);
+  // ---- ข้อมูลหลัก: บริษัทและหน่วยงาน (หน่วยงานเป็นบรรทัดย่อยของบริษัท)
+  await go(a, '#/master/companies');
+  ok(!(await a.$('#nav a[href="#/master/departments"]')), 'no separate department menu');
+  const nsel = await a.$$eval('.master-form tr[data-unassigned] select[data-k=company]', e => e.length);
+  ok(nsel >= 5, 'legacy departments shown in the unassigned group with a company select: ' + nsel);
   await a.click('.master-form button[type=submit]'); await a.waitForTimeout(500);
   ok(/เลือกบริษัทของหน่วยงาน/.test(await a.textContent('#app')), 'save blocked without company');
-  const sels = await a.$$('.master-form tbody tr select[data-k=company]');
+  const sels = await a.$$('.master-form tr[data-unassigned] select[data-k=company]');
   for (const [i, s] of sels.entries()) await s.selectOption(i === 1 ? 'PCC' : 'PBI');
   await a.click('.master-form button[type=submit]'); await a.waitForTimeout(900);
   const items = (await sql("select items from public.v2_master where key='departments'"))[0].items;
   ok(items.every(d => d.company) && items.some(d => d.company === 'PCC'), 'departments saved with company: ' + JSON.stringify(items.slice(0, 2)));
+  ok(!(await a.$('.dept-unassigned-head')) && (await a.$$('.master-form tr.dept-row')).length === items.length, 'after save every department sits under its company');
+  // เพิ่มบริษัทใหม่ + หน่วยงานใต้บริษัทนั้น
+  await a.click('[data-co-add]'); await a.keyboard.type('NEWCO');
+  await a.locator('.co-row').last().locator('input[data-k=name]').fill('บริษัทใหม่');
+  await a.locator('[data-dept-add]').last().click(); await a.keyboard.type('ฝ่ายใหม่ใต้บริษัท');
+  await a.click('.master-form button[type=submit]'); await a.waitForTimeout(1000);
+  const cos = (await sql("select items from public.v2_master where key='companies'"))[0].items;
+  const ds2 = (await sql("select items from public.v2_master where key='departments'"))[0].items;
+  ok(cos.some(c => c.code === 'NEWCO') && ds2.some(d => d.name === 'ฝ่ายใหม่ใต้บริษัท' && d.company === 'NEWCO'), 'new company and its department saved together');
+  // ลบบริษัทที่ยังมีหน่วยงานไม่ได้ · ลบหน่วยงานก่อนแล้วลบบริษัทได้
+  const nCo = (await a.$$('.co-row')).length;
+  const newRow = a.locator('.co-row', { has: a.locator('input[data-k=code][value=NEWCO]') });
+  await newRow.locator('[data-m-remove]').click();
+  ok((await a.$$('.co-row')).length === nCo, 'cannot remove a company that still has departments');
+  await a.locator('tr.dept-row', { has: a.locator('input[data-k=dept][value="ฝ่ายใหม่ใต้บริษัท"]') }).locator('[data-m-remove]').click();
+  await newRow.locator('[data-m-remove]').click();
+  ok((await a.$$('.co-row')).length === nCo - 1, 'company removed after its departments are removed');
+  await a.click('.master-form button[type=submit]'); await a.waitForTimeout(1000);
+  const cos2 = (await sql("select items from public.v2_master where key='companies'"))[0].items;
+  const ds3 = (await sql("select items from public.v2_master where key='departments'"))[0].items;
+  ok(!cos2.some(c => c.code === 'NEWCO') && !ds3.some(d => d.company === 'NEWCO'), 'removal saved on server');
 
   // ---- ผู้ใช้: Business = บริษัท+หน่วยงาน 1 อัน
   await go(a, '#/admin');
