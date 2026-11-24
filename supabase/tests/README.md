@@ -18,3 +18,5 @@ PGDATABASE=sp node run.js      # ตั้ง PGHOST / PGPORT / PGUSER ตาม
   `psql -v ON_ERROR_STOP=1 -d sp -f shim.sql -f ../schema_v2.sql -f v2_test.sql`
 - `web_master.js` — หน้าเว็บจริง (Playwright) ↔ `fake-supabase.js` ↔ Postgres จริง: Admin เข้าระบบบันทึกค่าตั้งต้น · แก้ข้อมูลหลัก · ผู้ใช้อื่นเห็น · แก้ทับกันถูกปฏิเสธ · เซิร์ฟเวอร์ใช้ไม่ได้ก็ยังเปิดระบบได้แต่บันทึกไม่ได้
   `PGDATABASE=sp node web_master.js` (ต้องรัน `npm install` ในโฟลเดอร์นี้ และมี Playwright)
+- `check_schema.js` — ไม่ใช้ฐานข้อมูล: ตรวจว่า `schema_v2_all.sql` เป็นปัจจุบัน และ `SCHEMA_VERSION` ใน js/app.js = `v2_schema_version()` ใน schema_v2b.sql · **รันทุกครั้งที่แก้ supabase/schema_v2*.sql**: `node check_schema.js`
+- `web_users.js` (หน่วยงาน/ผู้ใช้/ฟอร์มงบ/ธุรการ) · `web_schema.js` (แถบเตือนฐานข้อมูลยังไม่อัปเดต) — `PGDATABASE=sp node <ไฟล์>`
