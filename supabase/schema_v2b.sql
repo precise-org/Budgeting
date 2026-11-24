@@ -58,7 +58,7 @@ revoke all on public.v2_docs, public.v2_counters, public.v2_log from anon, authe
 drop function if exists public._v2_sees_all(text);
 drop function if exists public._v2_can_write(text, text);
 
-/** บทบาทที่ต้องเห็นงานของคนอื่นทั้งบริษัท — ต้องตรงกับ canViewAll() ใน js/app.js (ธุรการ business.proxy ไม่อยู่ในนี้ — เห็นเฉพาะงบของ Business ที่ถูกแท็กใน v2_profiles.proxy_for) */
+/** บทบาทที่ต้องเห็นงานของคนอื่นทั้งบริษัท — ต้องตรงกับ canViewAll() ใน js/app.js (ธุรการ business.proxy ไม่อยู่ในนี้ — เห็นเฉพาะงบของ Business ที่ถูกแท็กใน v2_profiles.proxy_for · ยังไม่แท็กใครเลย = ทั้งบริษัทไปก่อน) */
 create or replace function public._v2_sees_all(p_roles text[]) returns boolean
 language sql stable security definer set search_path = public as $$
   select public._v2_perms(p_roles) && array['budget.view_all', 'budget.manage', 'budget.verify', 'request.decide', 'cut.record', 'po.record', 'gl.manage']
@@ -74,8 +74,8 @@ create or replace function public._v2_doc_visible(u public.v2_profiles, p_kind t
 language sql stable security definer set search_path = public as $$
   select case
     when public._v2_sees_all(u.roles) then public._v2_company_ok(u, p_company)
-    -- ธุรการ: เห็น/ทำแทนเฉพาะเอกสารของ Business ที่ Admin แท็กไว้ (p_owner = เจ้าของงบ) ในบริษัทที่มีสิทธิ์
-    when 'business.proxy' = any (public._v2_perms(u.roles)) and public._v2_company_ok(u, p_company) and p_owner = any (u.proxy_for) then true
+    -- ธุรการ: เห็น/ทำแทนเฉพาะเอกสารของ Business ที่ Admin แท็กไว้ (p_owner = เจ้าของงบ) ในบริษัทที่มีสิทธิ์ · ยังไม่ได้แท็กใครเลย (proxy_for ว่าง) = ทั้งบริษัทไปก่อน
+    when 'business.proxy' = any (public._v2_perms(u.roles)) and public._v2_company_ok(u, p_company) and (cardinality(u.proxy_for) = 0 or p_owner = any (u.proxy_for)) then true
     when p_kind = 'request' then p_requester = u.id::text
     else p_owner = u.id::text
   end

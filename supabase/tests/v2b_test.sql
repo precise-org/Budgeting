@@ -161,7 +161,7 @@ select pg_temp.ok((select by_id::text from public.v2_log where action = 'ปล�
 set role authenticated;
 
 -- ---------------------------------------------------------------- ธุรการ (business.proxy) และบัญชี (gl.manage)
--- แท็กตามชื่อ Business: ธุรการ 09 ช่วยเฉพาะ Biz1 (05) — งบของ Biz2 (06) ไม่เห็น ทำแทนไม่ได้ · ธุรการที่ไม่ถูกแท็ก (12) ไม่เห็นอะไรเลย
+-- แท็กตามชื่อ Business: ธุรการ 09 ช่วยเฉพาะ Biz1 (05) — งบของ Biz2 (06) ไม่เห็น ทำแทนไม่ได้ · ธุรการที่ยังไม่ถูกแท็ก (12) เห็น/ทำแทนได้ทั้งบริษัทไปก่อน
 select pg_temp.as_user(6);
 select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","state":"draft"}}]');
 select pg_temp.as_user(9);
@@ -169,7 +169,9 @@ select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') not like '%bZ%', 'ธ�
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"ast"}}]')$$, 'ธุรการแก้งบของ Business ที่ไม่ได้แท็กไม่ได้', 'ไม่มีสิทธิ์');
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"budget","id":"bZ2","version":0,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z2"}}]')$$, 'ธุรการสร้างงบให้ Business ที่ไม่ได้แท็กไม่ได้', 'ไม่มีสิทธิ์');
 select pg_temp.as_user(12);
-select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') = '', 'ธุรการที่ยังไม่ถูกแท็กใคร ไม่เห็นงบเลย');
+select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') like '%bZ%' and pg_temp.ids(public.v2_load(), 'budget') like '%b1%', 'ธุรการที่ยังไม่ถูกแท็กใคร เห็นงบของทุก Business ในบริษัท (ไปก่อน)');
+select public.v2_save_docs('[{"kind":"budget","id":"bZ","version":1,"data":{"company":"PBI","ownerId":"00000000-0000-0000-0000-000000000006","code":"Z","by":"astNoTag"}}]');
+select pg_temp.ok(true, 'ธุรการที่ยังไม่ถูกแท็กทำแทน Business ในบริษัทได้');
 select pg_temp.as_user(11);
 select pg_temp.ok(pg_temp.ids(public.v2_load(), 'budget') = '', 'ธุรการ PCC (แท็ก Biz1 แต่คนละบริษัท) ไม่เห็นงบ PBI');
 select pg_temp.as_user(9);

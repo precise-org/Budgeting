@@ -41,7 +41,7 @@ update public.v2_profiles set password_set_at = last_login_at where password_set
 
 -- หลายบทบาทต่อผู้ใช้: roles = บทบาททั้งหมด (สิทธิ์ = รวมทุกบทบาท) · role = บทบาทหลัก (roles[1]) เก็บไว้ให้โค้ดเดิม/Edge Function เก่าใช้ต่อได้
 alter table public.v2_profiles add column if not exists roles text[] not null default '{}';
--- ธุรการ (สิทธิ์ business.proxy): รายการ id ของ Business ที่ช่วยงานให้ — เห็น/ทำแทนได้เฉพาะงบของคนในรายการ (Admin ตั้งให้ · ธุรการแก้เองไม่ได้) · ว่าง = ไม่เห็นงบของใครเลย
+-- ธุรการ (สิทธิ์ business.proxy): รายการ id ของ Business ที่ช่วยงานให้ — เห็น/ทำแทนได้เฉพาะงบของคนในรายการ (Admin ตั้งให้ · ธุรการแก้เองไม่ได้) · ว่าง = เห็นและทำแทนได้ทั้งบริษัทไปก่อน
 alter table public.v2_profiles add column if not exists proxy_for text[] not null default '{}';
 update public.v2_profiles set roles = array[role] where cardinality(roles) = 0 and role is not null;
 
