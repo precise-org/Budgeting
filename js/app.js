@@ -7437,6 +7437,10 @@
     if (LIST_PAGES.includes(parts[0]) || (parts[0] === 'budget' && parts.length === 2 && parts[1] !== 'new' && parts[1] !== 'import')) lastRequestParent = here;
 
     renderNav('#' + path);
+    if (AUTH_REMOTE && schemaStale) {
+      html = '<div class="alert warn" id="schemaWarn">ฐานข้อมูลยังไม่อัปเดตให้ตรงกับเว็บเวอร์ชันนี้ — บางฟังก์ชันอาจใช้ไม่ได้หรือขึ้นข้อผิดพลาด ' +
+        (can('user.manage') ? '· ผู้ดูแลระบบ: รันไฟล์ <code>supabase/schema_v2_all.sql</code> ใหม่ใน Supabase SQL Editor (ดู supabase/SETUP-v2.md ขั้นตอน 2) แล้วรีเฟรชหน้านี้' : '· แจ้งผู้ดูแลระบบให้อัปเดตฐานข้อมูล') + '</div>' + html;
+    }
     app.innerHTML = html;
     // ปุ่ม "ยกเลิก" ในฟอร์มกลับไปหน้าก่อนหน้าเช่นเดียวกับปุ่มย้อนกลับ
     if (back) app.querySelectorAll('[data-back]').forEach((a) => { a.setAttribute('href', back); });
@@ -7634,6 +7638,17 @@
   // เก็บเป็นเอกสารรายตัว (budget / request / change) + Log · ฟังก์ชันบนฐานข้อมูล v2_load / v2_save_docs (supabase/schema_v2b.sql)
   // ข้อมูลหลัก (db.master) ไม่อยู่ในชั้นนี้ — เก็บแยกที่ v2_master (loadRemoteMaster / bindMaster)
   // แอปแก้ข้อมูลใน db แล้วเรียก save() ตามเดิม → save() ตั้งเวลาให้ syncPush() ส่งเฉพาะเอกสารที่เปลี่ยน (เทียบกับ snapshot ล่าสุดที่ตรงกับเซิร์ฟเวอร์)
+  // เลขเวอร์ชันสคีมาที่เว็บนี้ต้องการ — ต้องเท่ากับ v2_schema_version() ใน supabase/schema_v2b.sql (ตรวจด้วย supabase/tests/check_schema.js)
+  const SCHEMA_VERSION = 5;
+  let schemaStale = false; // ฐานข้อมูลยังไม่ได้รันสคีมาล่าสุด → แสดงแถบเตือน
+  async function checkSchemaVersion() {
+    try {
+      schemaStale = Number(await window.RemoteApi.v2SchemaVersion()) < SCHEMA_VERSION;
+    } catch (e) {
+      // ไม่มีฟังก์ชันนี้ (404) = ยังไม่เคยรันสคีมารุ่นที่มีเลขเวอร์ชัน · ข้อผิดพลาดอื่น (ออฟไลน์ ฯลฯ) ไม่ถือว่าเก่า
+      schemaStale = !!(e && (e.status === 404 || e.code === 'PGRST202'));
+    }
+  }
   const SYNC_KINDS = [['budget', 'budgets'], ['request', 'requests'], ['change', 'changes']];
   const sync = { docs: new Map(), since: null, timer: null, retryTimer: null, pollTimer: null, inflight: false, again: false, status: 'idle', error: '' };
   const syncKey = (kind, id) => kind + ':' + id;
@@ -7913,6 +7928,7 @@
         await loadRemoteRoles();
         await refreshAccounts();
         await loadRemoteMaster(); // ข้อมูลหลักบน Supabase (v2_master)
+        await checkSchemaVersion();
         await syncPull(true); // โหลดข้อมูลงบทั้งหมดที่ผู้ใช้เห็น
       }
     } catch (e) {

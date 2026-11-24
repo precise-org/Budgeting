@@ -171,6 +171,7 @@
     adminUsers: (body) => invoke('v2-admin-users', body),
     // ---- ข้อมูลงบ (supabase/schema_v2b.sql)
     v2Load: (since) => rpc('v2_load', { p_since: since || null }),
+    v2SchemaVersion: () => rpc('v2_schema_version'),
     v2SaveDocs: (docs, log) => rpc('v2_save_docs', { p_docs: docs, p_log: log || [] }),
     me: () => rpc('app_me'),
     load: () => rpc('app_load'),

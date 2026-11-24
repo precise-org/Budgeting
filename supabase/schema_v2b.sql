@@ -279,3 +279,10 @@ revoke all on function public._v2_sees_all(text[]), public._v2_company_ok(public
   public._v2_log_visible(public.v2_profiles, uuid, text) from public, anon, authenticated;
 revoke all on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) from public, anon, authenticated;
 grant execute on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) to authenticated;
+
+-- ---------------------------------------------------------------- เลขเวอร์ชันของสคีมา (หน้าเว็บตรวจว่าฐานข้อมูลอัปเดตตรงกับเว็บไหม)
+-- เพิ่มเลขนี้ทุกครั้งที่แก้ schema ที่หน้าเว็บต้องพึ่งพา และแก้ SCHEMA_VERSION ใน js/app.js ให้เท่ากัน (ตรวจด้วย supabase/tests/check_schema.js)
+create or replace function public.v2_schema_version() returns integer
+language sql immutable set search_path = public as $$ select 5 $$;
+revoke all on function public.v2_schema_version() from public, anon;
+grant execute on function public.v2_schema_version() to authenticated;
