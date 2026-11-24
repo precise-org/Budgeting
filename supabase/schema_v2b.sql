@@ -4,7 +4,7 @@
 --
 -- โมเดล
 --   * เก็บเป็น "เอกสาร" รายตัว (งบ 1 ใบ = 1 แถว ฯลฯ) เนื้อหาเป็น jsonb พร้อมเลขเวอร์ชัน — หลายคนบันทึกพร้อมกันแล้วไม่เขียนทับกัน (เวอร์ชันไม่ตรง = CONFLICT)
---   * เลขที่เอกสารออกโดยเซิร์ฟเวอร์ (ตัวนับ ไม่ซ้ำ ไม่มีช่องว่าง): เบราว์เซอร์ใส่ token @@NO:REQ-2026:xxxx@@ ในข้อมูล เซิร์ฟเวอร์แทนที่เป็นเลขจริงตอนบันทึก
+--   * เลขที่เอกสารออกโดยเซิร์ฟเวอร์ (ตัวนับ ไม่ซ้ำ ไม่มีช่องว่าง): เบราว์เซอร์ใส่ token @@NO:REQ-2026:xxxx@@ ในข้อมูล เซิร์ฟเวอร์แทนที่เป็นเลขจริงตอนบันทึก (Memo มีตัวบอกประเภท: @@NO:MEMO-C-2026:xxxx@@ → MEMO-C-2026-0001 · C = CAPEX · O = OPEX · ตัวนับแยกกัน)
 --   * การมองเห็น (RLS แบบฟังก์ชัน) — ตารางเปิด RLS และไม่มี policy จึงเข้าได้ผ่านฟังก์ชัน v2_load / v2_save_docs เท่านั้น
 --       - ผู้ใช้ที่ "เห็นงานของคนอื่น" (มีสิทธิ์ดูทั้งหมด/ตรวจ/อนุมัติ/ตัดงบ/PO) เห็นเฉพาะบริษัทใน companies ของบัญชี · Admin เห็นทุกบริษัท
 --       - ผู้ใช้อื่น (Business) เห็นเฉพาะงบที่ตนเป็นเจ้าของ และคำขอที่ตนเป็นผู้ขอ
@@ -141,7 +141,7 @@ language sql immutable set search_path = public as $$
           where left(coalesce(j ->> 'code', ''), length(coalesce(i ->> 'code', '')) + 1) = coalesce(i ->> 'code', '') || '.') end
 $$;
 
-/** รายการ Item โดยไม่รวม GL (บัญชีใส่ GL ได้ตั้งแต่งบอยู่ระหว่างตรวจ — GL ตรวจแยกต่างหาก) */
+/** รายการ Item โดยไม่รวม GL (GL ตรวจแยกต่างหาก — ใส่ได้หลังงบเปิดใช้เท่านั้น) */
 create or replace function public._v2_items_nogl(p_items jsonb) returns jsonb
 language sql immutable set search_path = public as $$
   select coalesce(jsonb_agg(i - 'glCode' - 'glName' order by ord), '[]'::jsonb)
@@ -216,9 +216,11 @@ begin
         or (st_o = 'review' and st_n = 'pending_open' and can_verify and typ = 'CAPEX')
         or (st_o = 'review' and st_n = 'active' and can_verify and typ = 'CBS')
         or (st_o = 'review' and st_n = 'returned' and can_verify)
-        -- เปิดใช้งบครั้งแรก: CAPEX ต้องส่ง Memo (เจ้าของงบ) แล้วผู้คุมงบยืนยัน · OPEX เจ้าของงบกดเปิดเอง
-        or (st_o in ('pending_open', 'open_returned') and st_n = 'open_review' and is_owner and typ = 'CAPEX')
-        or (st_o in ('pending_open', 'open_returned') and st_n = 'active' and is_owner and typ = 'CBS')
+        -- เปิดใช้งบครั้งแรก: CAPEX ต้องส่ง Memo (เจ้าของงบ) แล้วผู้คุมงบยืนยัน
+        --   OPEX ที่ Business ลง Item เอง (มี breakdown) ต้องส่งให้ผู้คุมงบยืนยันเหมือนกัน (ไม่มี Memo) · OPEX ที่ Item มากับงบ เจ้าของงบกดเปิดเอง
+        or (st_o in ('pending_open', 'open_returned') and st_n = 'open_review' and is_owner)
+        or (st_o in ('pending_open', 'open_returned') and st_n = 'active' and is_owner and typ = 'CBS'
+            and coalesce(p_old -> 'breakdown', 'null'::jsonb) = 'null'::jsonb and coalesce(p_new -> 'breakdown', 'null'::jsonb) = 'null'::jsonb)
         or (st_o = 'open_review' and st_n in ('active', 'open_returned') and can_verify)
       ) then
         raise exception 'เปลี่ยนสถานะงบจาก "%" เป็น "%" ไม่ได้ — ไม่ถูกขั้นตอน หรือไม่มีสิทธิ์ (ข้ามขั้นอนุมัติ / Memo ไม่ได้)', st_o, st_n using errcode = '42501';
@@ -235,6 +237,27 @@ begin
        and abs(public._v2_ledger_total(p_new) - public._v2_ledger_total(p_old)) > 0.005
        and not (can_adjust or can_verify) then
       raise exception 'เปลี่ยนวงเงินงบที่เปิดใช้แล้วต้องผ่านการปรับงบ / ขอเพิ่มงบที่ผู้คุมงบยืนยัน' using errcode = '42501';
+    end if;
+
+    -- OPEX งบรวมที่ Business ลง Item เอง: บันทึก breakdown ไว้เสมอ (ลบไม่ได้) เพื่อบังคับให้ผู้คุมงบยืนยัน Item ก่อนเปิดใช้งบ
+    if typ = 'CBS' and not can_manage then
+      if coalesce(p_old -> 'breakdown', 'null'::jsonb) <> 'null'::jsonb and coalesce(p_new -> 'breakdown', 'null'::jsonb) = 'null'::jsonb then
+        raise exception 'ลบบันทึกการลง Item ของ OPEX ไม่ได้ — Item ที่ Business ลงเองต้องให้ผู้คุมงบยืนยัน' using errcode = '42501';
+      end if;
+      if coalesce(p_old ->> 'structure', '') = 'project' and coalesce(p_new ->> 'structure', '') <> 'project'
+         and st_o in ('pending_open', 'open_returned') and coalesce(p_new -> 'breakdown', 'null'::jsonb) = 'null'::jsonb then
+        raise exception 'ลง Item ของ OPEX งบรวมต้องบันทึกว่า Business เป็นผู้ลง — เพื่อให้ผู้คุมงบยืนยัน Item ก่อนเปิดใช้งบ' using errcode = '42501';
+      end if;
+    end if;
+
+    -- GL ของ OPEX: ใส่ / แก้ได้เมื่อ Item ถูกผู้คุมงบยืนยันแล้ว = งบเปิดใช้งบแล้วเท่านั้น
+    if typ = 'CBS' and not (st_o = 'active' and st_n = 'active') and exists (
+      select 1 from jsonb_array_elements(case when jsonb_typeof(p_new -> 'items') = 'array' then p_new -> 'items' else '[]'::jsonb end) n
+      join jsonb_array_elements(case when jsonb_typeof(p_old -> 'items') = 'array' then p_old -> 'items' else '[]'::jsonb end) o on o ->> 'id' = n ->> 'id'
+      where coalesce(o ->> 'glCode', '') is distinct from coalesce(n ->> 'glCode', '')
+         or coalesce(o ->> 'glName', '') is distinct from coalesce(n ->> 'glName', '')
+    ) then
+      raise exception 'ใส่ / แก้ GL Code ได้เมื่อผู้คุมงบยืนยัน Item และเปิดใช้งบแล้วเท่านั้น' using errcode = '42501';
     end if;
 
     -- GL ของ OPEX: เฉพาะบัญชี (gl.manage) แก้ได้
@@ -430,10 +453,10 @@ begin
   -- 1) ออกเลขที่แทน token (ตัวนับรายคำนำหน้า-ปี · ไม่ซ้ำ ไม่มีช่องว่าง เพราะอยู่ในธุรกรรมเดียวกับการบันทึก)
   txt_docs := coalesce(p_docs, '[]')::text;
   txt_log := coalesce(p_log, '[]')::text;
-  for rec in select m[1] as t from regexp_matches(txt_docs || ' ' || txt_log, '(@@NO:[A-Z]{2,10}-[0-9]{4}:[A-Za-z0-9]{4,24}@@)', 'g') as m loop
+  for rec in select m[1] as t from regexp_matches(txt_docs || ' ' || txt_log, '(@@NO:[A-Z]{2,10}(?:-[CO])?-[0-9]{4}:[A-Za-z0-9]{4,24}@@)', 'g') as m loop
     tok := rec.t;
     if tmap ? tok then continue; end if;
-    v_key := substring(tok from '@@NO:([A-Z]{2,10}-[0-9]{4}):');
+    v_key := substring(tok from '@@NO:([A-Z]{2,10}(?:-[CO])?-[0-9]{4}):');
     insert into public.v2_counters as c (key, n) values (v_key, 1)
       on conflict (key) do update set n = c.n + 1 returning c.n into v_n;
     tmap := tmap || jsonb_build_object(tok, v_key || '-' || lpad(v_n::text, 4, '0'));
@@ -589,6 +612,6 @@ grant execute on function public.v2_save_docs(jsonb, jsonb), public.v2_load(time
 -- ---------------------------------------------------------------- เลขเวอร์ชันของสคีมา (หน้าเว็บตรวจว่าฐานข้อมูลอัปเดตตรงกับเว็บไหม)
 -- เพิ่มเลขนี้ทุกครั้งที่แก้ schema ที่หน้าเว็บต้องพึ่งพา และแก้ SCHEMA_VERSION ใน js/app.js ให้เท่ากัน (ตรวจด้วย supabase/tests/check_schema.js)
 create or replace function public.v2_schema_version() returns integer
-language sql immutable set search_path = public as $$ select 6 $$;
+language sql immutable set search_path = public as $$ select 7 $$;
 revoke all on function public.v2_schema_version() from public, anon;
 grant execute on function public.v2_schema_version() to authenticated;

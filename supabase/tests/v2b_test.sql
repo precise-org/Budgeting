@@ -108,6 +108,10 @@ do $$ declare r jsonb; begin
   perform pg_temp.ok(r -> 'tokens' ->> '@@NO:REQ-2026:dddd4444@@' = 'REQ-2026-0003', 'เลขที่ไม่มีช่องว่างหลังชุดที่ล้มเหลว');
   r := public.v2_save_docs('[{"kind":"request","id":"r4","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005","no":"@@NO:CAPEX-2026:eeee5555@@","x":"@@NO:REQ-2027:ffff6666@@"}}]');
   perform pg_temp.ok(r -> 'tokens' ->> '@@NO:CAPEX-2026:eeee5555@@' = 'CAPEX-2026-0001' and r -> 'tokens' ->> '@@NO:REQ-2027:ffff6666@@' = 'REQ-2027-0001', 'ตัวนับแยกตามคำนำหน้าและปี');
+  -- Memo มีตัวบอกประเภท: C = CAPEX · O = OPEX (ตัวนับแยกกัน)
+  r := public.v2_save_docs('[{"kind":"request","id":"r4m","version":0,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005","a":"@@NO:MEMO-C-2026:m1111111@@","b":"@@NO:MEMO-O-2026:m2222222@@","c":"@@NO:MEMO-C-2026:m3333333@@"}}]');
+  perform pg_temp.ok(r -> 'tokens' ->> '@@NO:MEMO-C-2026:m1111111@@' = 'MEMO-C-2026-0001' and r -> 'tokens' ->> '@@NO:MEMO-O-2026:m2222222@@' = 'MEMO-O-2026-0001'
+    and r -> 'tokens' ->> '@@NO:MEMO-C-2026:m3333333@@' = 'MEMO-C-2026-0002', 'เลข Memo บอกประเภท C/O และตัวนับแยกกัน');
 end $$;
 
 -- ปลอมผู้ขอ / ข้ามบริษัท
@@ -117,9 +121,9 @@ select pg_temp.as_user(3);
 select pg_temp.expect_fail($$select public.v2_save_docs('[{"kind":"request","id":"r1","version":1,"data":{"budgetId":"b1","requesterId":"00000000-0000-0000-0000-000000000005","status":"HACK"}}]')$$, 'ผู้คุมงบ PCC แก้คำขอของงบ PBI ไม่ได้', 'ไม่มีสิทธิ์');
 
 -- การมองเห็นคำขอ
-select pg_temp.as_user(5); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = 'r1,r2,r3,r4', 'ผู้ขอเห็นคำขอของตัวเอง');
+select pg_temp.as_user(5); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = 'r1,r2,r3,r4,r4m', 'ผู้ขอเห็นคำขอของตัวเอง');
 select pg_temp.as_user(6); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = '', 'business คนอื่นไม่เห็นคำขอ');
-select pg_temp.as_user(2); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = 'r1,r2,r3,r4', 'ผู้คุมงบ PBI เห็นทุกคำขอของบริษัท');
+select pg_temp.as_user(2); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = 'r1,r2,r3,r4,r4m', 'ผู้คุมงบ PBI เห็นทุกคำขอของบริษัท');
 select pg_temp.as_user(3); select pg_temp.ok(pg_temp.ids(public.v2_load(), 'request') = '', 'ผู้คุมงบ PCC ไม่เห็นคำขอ PBI');
 -- จัดซื้อบันทึก PR/PO ที่คำขอได้ · ผู้คุมงบตัดสินใจได้
 select pg_temp.as_user(4);
