@@ -7395,7 +7395,7 @@
     // ---- ฟอร์มตั้งงบ / นำเข้างบ
     const bf = document.getElementById('budgetForm');
     if (bf) {
-      markReq(bf, ['company', 'fiscalYear', 'code', 'name', 'department', 'ownerId', 'projAmount', 'priorityGroup', 'investGroup', 'financeOwner']);
+      markReq(bf, ['company', 'fiscalYear', 'code', 'name', 'department', 'ownerId', 'projAmount', 'financeOwner']); // กลุ่ม Priority / กลุ่ม Priority การลงทุน ไม่บังคับ — ไม่ใส่ *
       markReqText(bf, '.item-table thead th', /^(รหัสรายการย่อย|ชื่อรายการ|วงเงิน \(รวม VAT\))$/);
       guard(bf, [{ btn: '[data-action="create"]', label: 'สร้างงบ', missing: (f) => budgetFormMissing(f) },
         { btn: '[data-action="draft"]', label: 'บันทึกแบบร่าง', missing: (f) => [!filled(f.elements.code) && 'รหัสโครงการ', !filled(f.elements.name) && 'ชื่อโครงการ'] }], '.form-bar .bar-hint');
