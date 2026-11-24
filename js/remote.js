@@ -157,7 +157,7 @@
     v2Me: (login) => rpc('v2_me', { p_login: !!login }),
     v2Directory: () => rpc('v2_directory'),
     v2ListUsers: () => rpc('v2_list_users'),
-    v2UpdateUser: (u) => rpc('v2_update_user', Object.assign({ p_id: u.id, p_name: u.name, p_title: u.title || '', p_department: u.department || '', p_company: u.company || '', p_companies: u.companies || [], p_roles: u.roles || [u.role] }, Array.isArray(u.proxyFor) ? { p_proxy_for: u.proxyFor } : {})),
+    v2UpdateUser: (u) => rpc('v2_update_user', Object.assign({ p_id: u.id, p_name: u.name, p_title: u.title || '', p_department: u.department || '', p_company: u.company || '', p_companies: u.companies || [], p_roles: u.roles || [u.role] }, Array.isArray(u.departments) ? { p_departments: u.departments } : {}, Array.isArray(u.proxyFor) ? { p_proxy_for: u.proxyFor } : {})),
     v2RequestReset: (email) => rpcAnon('v2_request_reset', { p_email: email }),
     v2ActivationStatus: (email) => rpcAnon('v2_activation_status', { p_email: email }),
     activate: (email, password) => invokeAnon('v2-admin-users', { action: 'activate', email, password }),

@@ -41,6 +41,8 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
     await p.waitForTimeout(500);
     return p;
   };
+  // หน่วยงานต้องมีบริษัท: เติมบริษัทให้แถวที่ยังว่างก่อนกดบันทึก
+  const fixCo = async (p) => { for (const sel of await p.$$('.master-form select[data-k=company]')) { if (!(await sel.inputValue())) await sel.selectOption('PBI'); } };
   const go = async (p, h) => { await p.evaluate((x) => { location.hash = x; }, h); await p.waitForTimeout(400); };
   const keys = async () => (await sql('select key from public.v2_master order by key')).map((r) => r.key);
   const items = async (k) => (await sql('select items from public.v2_master where key = $1', [k]))[0].items;
@@ -58,15 +60,18 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   ok(!!(await a1.$('.alert.info')) && !(await a1.$('.alert.error')), 'master page shows server-backed notice');
   await a1.click('[data-m-add]');
   await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'ฝ่ายใหม่ (เฟส 2)');
+  await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(700);
   ok((await items('departments')).some((d) => d.name === 'ฝ่ายใหม่ (เฟส 2)'), 'department saved on server');
   ok(/บันทึกหน่วยงานแล้ว|บันทึก/.test(await a1.textContent('#app')), 'success flash');
 
   // ---- ผู้ใช้อื่นเห็นค่าที่ Admin บันทึก (เครื่อง/เบราว์เซอร์คนละ context)
+  // หน่วยงานในฟอร์มงบ = หน่วยงานของเจ้าของงบ (Admin ตั้งให้ผู้ขอจากหน่วยงานที่เพิ่งบันทึกในข้อมูลหลัก)
+  await sql("update public.v2_profiles set departments = array['ฝ่ายใหม่ (เฟส 2)'], company = 'PBI' where lower(email) = 'biz@example.com'");
   const biz = await open('biz@example.com');
   await go(biz, '#/budget/new');
   const opts = await biz.$$eval('[name=department] option', (o) => o.map((x) => x.value));
-  ok(opts.includes('ฝ่ายใหม่ (เฟส 2)'), 'business sees the department Admin saved: ' + opts.join('|'));
+  ok(opts.length === 1 && opts[0] === 'ฝ่ายใหม่ (เฟส 2)', 'business budget form offers only the owner own department: ' + opts.join('|'));
   await go(biz, '#/master/departments');
   ok(/ไม่มีสิทธิ์จัดการข้อมูลหลัก/.test(await biz.textContent('#app')), 'business cannot open master page');
 
@@ -75,9 +80,11 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   await go(a2, '#/master/departments');
   await a2.click('[data-m-add]');
   await a2.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin2');
+  await fixCo(a2);
   await a2.click('.master-form button[type=submit]'); await a2.waitForTimeout(700);
   await a1.click('[data-m-add]');   // a1 ยังอยู่หน้าเดิมที่โหลดค่าเก่าไว้ (ก่อน Admin2 บันทึก)
   await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin1');
+  await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(900);
   const txt = await a1.textContent('#app');
   ok(/มีผู้อื่นแก้ข้อมูลหลักนี้ไปก่อน/.test(txt), 'stale save rejected with message');
@@ -87,6 +94,7 @@ const ok = (c, m) => { if (c) pass += 1; else { fail += 1; console.log('FAIL', m
   // แก้ซ้ำหลังเห็นค่าล่าสุดได้
   await a1.click('[data-m-add]');
   await a1.fill('.master-form tbody tr:last-child input[data-k=name]', 'โดย Admin1');
+  await fixCo(a1);
   await a1.click('.master-form button[type=submit]'); await a1.waitForTimeout(700);
   ok((await items('departments')).some((d) => d.name === 'โดย Admin1'), 'second attempt saves');
 

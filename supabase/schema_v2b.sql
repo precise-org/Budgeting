@@ -111,7 +111,7 @@ declare
   u public.v2_profiles;
   txt_docs text; txt_log text; tok text; tmap jsonb := '{}'::jsonb; v_key text; v_n integer;
   d jsonb; l jsonb; ex public.v2_docs; v_kind text; v_id text; expected integer; ver integer; is_del boolean;
-  comp text; own text; req text; bud text; b public.v2_docs;
+  comp text; own text; req text; bud text; b public.v2_docs; v_proxy_only boolean; v_dept text; owner_depts text[];
   out_docs jsonb := '[]'::jsonb; out_log jsonb := '[]'::jsonb; rec record; new_id bigint; new_at timestamptz;
 begin
   u := public._v2_user();
@@ -136,6 +136,9 @@ begin
   end loop;
   p_docs := txt_docs::jsonb;
   p_log := txt_log::jsonb;
+
+  -- ธุรการ (business.proxy) ที่ไม่ได้ดูงานทั้งบริษัทด้วยบทบาทอื่น: ทำแทนได้เฉพาะงบที่เปิดใช้แล้ว สร้างงบเองไม่ได้
+  v_proxy_only := 'business.proxy' = any (public._v2_perms(u.roles)) and not public._v2_sees_all(u.roles);
 
   -- 2) เอกสาร
   for d in select * from jsonb_array_elements(p_docs) loop
@@ -168,9 +171,27 @@ begin
         select * into b from public.v2_docs t1 where t1.kind = 'budget' and t1.id = bud and not t1.deleted;
         if b.id is null then raise exception 'ไม่พบงบที่อ้างอิง (%)', bud; end if;
         comp := b.company; own := b.owner_id;
+        if v_proxy_only and own <> u.id::text and coalesce(b.data ->> 'state', 'active') <> 'active' then
+          raise exception 'ธุรการทำรายการได้เฉพาะงบที่เปิดใช้งานแล้ว (%)', bud using errcode = '42501';
+        end if;
         if v_kind = 'request' then req := coalesce(d -> 'data' ->> 'requesterId', ''); end if;
       end if;
       if v_kind = 'budget' then
+        -- ธุรการสร้างงบไม่ได้ · แก้/ทำรายการได้เฉพาะงบที่เปิดใช้งานแล้ว (ทั้งก่อนและหลังแก้)
+        if v_proxy_only and own <> u.id::text then
+          if ex.id is null or ex.deleted then raise exception 'ธุรการสร้างงบไม่ได้ — ให้ Business เจ้าของงบสร้างเอง' using errcode = '42501'; end if;
+          if coalesce(ex.data ->> 'state', 'active') <> 'active' or coalesce(d -> 'data' ->> 'state', 'active') <> 'active' then
+            raise exception 'ธุรการทำรายการได้เฉพาะงบที่เปิดใช้งานแล้ว' using errcode = '42501';
+          end if;
+        end if;
+        -- หน่วยงานของงบต้องเป็นหน่วยงานของเจ้าของงบ (ตรวจเมื่อสร้างใหม่ หรือเมื่อเปลี่ยนหน่วยงาน/เจ้าของ — งบเดิมที่ไม่ได้แก้ส่วนนี้ไม่ถูกกระทบ)
+        v_dept := btrim(coalesce(d -> 'data' ->> 'department', ''));
+        if own <> '' and v_dept <> '' and (ex.id is null or ex.deleted or ex.owner_id is distinct from own or btrim(coalesce(ex.data ->> 'department', '')) is distinct from v_dept) then
+          select pp.departments into owner_depts from public.v2_profiles pp where pp.id::text = own;
+          if owner_depts is not null and cardinality(owner_depts) > 0 and not (v_dept = any (owner_depts)) then
+            raise exception 'หน่วยงานของงบต้องเป็นหน่วยงานของเจ้าของงบ (เจ้าของงบอยู่หน่วยงาน %)', array_to_string(owner_depts, ', ') using errcode = '42501';
+          end if;
+        end if;
         -- ธุรการ (business.proxy) เป็นเจ้าของงบไม่ได้
         if own <> '' and exists (select 1 from public.v2_profiles pp where pp.id::text = own and 'business.proxy' = any (public._v2_perms(pp.roles))) then
           raise exception 'ธุรการเป็นเจ้าของงบไม่ได้ — เลือก Business เจ้าของงบ' using errcode = '42501';

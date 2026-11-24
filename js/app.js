@@ -81,7 +81,7 @@
     business: ['budget.create', 'request.create'],
     controller: ['budget.view_all', 'budget.manage', 'budget.verify', 'budget.adjust', 'request.decide', 'cut.record', 'data.export'],
     accountant: ['budget.view_all', 'gl.manage', 'data.export'],
-    assistant: ['budget.create', 'request.create', 'business.proxy'],
+    assistant: ['request.create', 'business.proxy'],
     purchasing: ['budget.view_all', 'po.record'],
     admin: ['budget.view_all', 'master.manage', 'log.view', 'user.manage', 'data.export']
   };
@@ -701,11 +701,14 @@
   const nextUserId = () => { let n = USERS.length + 1; while (USERS.some((u) => u.id === 'u' + n)) n += 1; return 'u' + n; };
   /** บทบาททั้งหมดของผู้ใช้ (1 คนมีได้หลายบทบาท — สิทธิ์รวมกัน · บทบาทแรก = บทบาทหลัก) */
   const rolesOf = (u) => (!u ? [] : Array.isArray(u.roles) && u.roles.length ? u.roles : (u.role ? [u.role] : []));
+  /** หน่วยงานทั้งหมดของผู้ใช้ (Business มี 1 หน่วยงาน · ธุรการที่ Admin ตั้งให้มีได้หลายหน่วยงาน · หน่วยงานแรก = หน่วยงานหลัก) */
+  const deptsOf = (u) => (!u ? [] : Array.isArray(u.departments) && u.departments.length ? u.departments : (u.department ? [u.department] : []));
   const accountClean = (f) => {
+    const departments = uniq((Array.isArray(f.departments) ? f.departments : [f.department]).map((k) => String(k || '').trim()).filter(Boolean));
     const roles = uniq((Array.isArray(f.roles) && f.roles.length ? f.roles : [f.role]).map((k) => String(k || '').trim()).filter(Boolean));
     return {
     email: normEmail(f.email), name: String(f.name || '').trim(), title: String(f.title || '').trim(),
-    department: String(f.department || '').trim(), company: String(f.company || '').trim(), role: roles[0] || '', roles,
+    department: departments[0] || '', departments, company: String(f.company || '').trim(), role: roles[0] || '', roles,
     // บริษัทที่ดูงบ/งานได้ (ผู้คุมงบ / จัดซื้อ) — ไม่ส่งมา = คงค่าเดิม
     companies: Array.isArray(f.companies) ? uniq(f.companies.map((c) => String(c).trim()).filter(Boolean)) : undefined,
     // ธุรการช่วยงานให้ Business คนไหน (รายการ id ผู้ใช้) — ไม่ส่งมา = คงค่าเดิม
@@ -849,9 +852,9 @@
     const a = accountClean(f);
     const problem = accountProblem(a, '');
     if (problem) throw new Error(problem);
-    const r = await window.RemoteApi.adminUsers({ action: 'create', email: a.email, name: a.name, title: a.title, department: a.department, company: a.company, companies: a.companies, roles: a.roles });
+    const r = await window.RemoteApi.adminUsers({ action: 'create', email: a.email, name: a.name, title: a.title, department: a.department, departments: a.departments, company: a.company, companies: a.companies, roles: a.roles });
     if (a.proxyFor && a.proxyFor.length) {
-      await window.RemoteApi.v2UpdateUser({ id: r.user.id, name: a.name, title: a.title, department: a.department, company: a.company, companies: a.companies || [], roles: a.roles, proxyFor: a.proxyFor });
+      await window.RemoteApi.v2UpdateUser({ id: r.user.id, name: a.name, title: a.title, department: a.department, departments: a.departments, company: a.company, companies: a.companies || [], roles: a.roles, proxyFor: a.proxyFor });
     }
     logAction('เพิ่มบัญชีผู้ใช้', a.email, a.name + ' · ' + a.roles.map((k) => ROLE_LABEL[k] || k).join(', '));
     save();
@@ -864,7 +867,7 @@
     const a = accountClean(Object.assign({}, u, f, { email: u.email })); // อีเมลเปลี่ยนไม่ได้ (ผูกกับบัญชีล็อกอิน)
     if (!a.name) throw new Error('กรุณาระบุชื่อ');
     if (!a.roles.length) throw new Error('กรุณาเลือกบทบาทอย่างน้อย 1 บทบาท');
-    await window.RemoteApi.v2UpdateUser({ id, name: a.name, title: a.title, department: a.department, company: a.company, companies: a.companies || [], roles: a.roles, proxyFor: Array.isArray(f.proxyFor) ? a.proxyFor : undefined }); // ส่งเฉพาะเมื่อฟอร์มมีช่องนี้ (ไม่งั้นคงค่าเดิมและใช้ฟังก์ชันเวอร์ชันเก่าของฐานข้อมูลได้)
+    await window.RemoteApi.v2UpdateUser({ id, name: a.name, title: a.title, department: a.department, departments: a.departments, company: a.company, companies: a.companies || [], roles: a.roles, proxyFor: Array.isArray(f.proxyFor) ? a.proxyFor : undefined }); // ส่งเฉพาะเมื่อฟอร์มมีช่องนี้ (ไม่งั้นคงค่าเดิมและใช้ฟังก์ชันเวอร์ชันเก่าของฐานข้อมูลได้)
     logAction('แก้ไขบัญชีผู้ใช้', u.email, a.name);
     save();
     await refreshAccounts();
@@ -898,7 +901,7 @@
   }
   /** รายชื่อสำหรับเลือก / แท็กงานถึงคน: ผู้ใช้ที่เปิดใช้งาน พร้อมตำแหน่ง หน่วยงาน บริษัท (filter: ฟังก์ชันกรองเพิ่มได้) */
   const activeUsers = (filter) => USERS.filter((u) => u.active !== false && (!filter || filter(u)));
-  const userLabel = (u) => (u ? u.name + (u.title ? ' — ' + u.title : '') + (u.department || u.company ? ' · ' + [u.department, u.company].filter(Boolean).join(' / ') : '') : '-');
+  const userLabel = (u) => (u ? u.name + (u.title ? ' — ' + u.title : '') + (deptsOf(u).length || u.company ? ' · ' + [deptsOf(u).join(', '), u.company].filter(Boolean).join(' / ') : '') : '-');
   const userOptions = (selectedId, filter) => '<option value="">— เลือก —</option>' + activeUsers(filter).map((u) => '<option value="' + esc(u.id) + '"' + (u.id === selectedId ? ' selected' : '') + '>' + esc(userLabel(u)) + '</option>').join('');
   // เปิดให้หน้า Admin / ชุดทดสอบเรียกใช้ (ทุกฟังก์ชันตรวจสิทธิ์ user.manage เอง)
   window.AppAccounts = { list: () => USERS.slice(), create: accountCreate, update: accountUpdate, setActive: accountSetActive, resetPassword: accountResetPassword, state: accountState };
@@ -1148,7 +1151,9 @@
    * ยังไม่ได้แท็กใครเลย (รายการว่าง) = เห็นและทำแทนได้ทั้งบริษัทไปก่อน (ฐานข้อมูลบังคับเหมือนกัน — v2_profiles.proxy_for)
    */
   const proxyTags = () => (me().proxyFor || []);
-  const proxyOf = (b) => !!b && isProxy() && budgetScoped(b) && (!proxyTags().length || proxyTags().includes(b.ownerId));
+  const proxyOf = (b) => !!b && isProxy() && isActive(b) && budgetScoped(b) && (!proxyTags().length || proxyTags().includes(b.ownerId)); // ธุรการเห็น/ทำแทนได้เฉพาะงบที่เปิดใช้งานแล้ว
+  /** ธุรการล้วน (ไม่ได้ดูงานทั้งบริษัทด้วยบทบาทอื่น): สร้างงบเองไม่ได้ — ให้ Business เจ้าของงบสร้างและเปิดใช้งบเอง */
+  const proxyOnly = () => isProxy() && !canViewAll();
   const actsFor = (b) => !!b && (b.ownerId === me().id || proxyOf(b));
   const roleLabel = (u) => (u && (u.roleName || rolesOf(u).map((k) => ROLE_LABEL[k] || k).join(', '))) || '';
   /** เลือกเป็น Business เจ้าของงบได้: ต้องขอเบิกได้ และไม่ใช่ธุรการ (ธุรการเปิดใช้งบไม่ได้) */
@@ -1550,7 +1555,7 @@
     const selWrap = (id, label, inner) => '<label class="input-wrap select-wrap"><select id="' + id + '" aria-label="' + label + '">' + inner + '</select></label>';
 
     // ---- หัวหน้า: ชื่อหน้า + ปุ่มหลักชิดขวา
-    const actions = can('budget.create') && mine
+    const actions = can('budget.create') && !proxyOnly() && mine
       ? '<a class="btn primary tall" href="#/budget/new"><span aria-hidden="true">+</span> ขออนุมัติงบใหม่</a>'
       : can('budget.manage') && !mine
         ? '<a class="btn primary tall" href="#/budget/new"><span aria-hidden="true">+</span> สร้างงบประมาณ</a><a class="btn tall" href="#/budget/import">Import งบ</a>'
@@ -1752,7 +1757,7 @@
       if (b.setup && waitingOpen(b) && can('budget.manage')) return 'setup';
       return null;
     }
-    if (can('budget.create')) return 'draft';
+    if (can('budget.create') && !proxyOnly()) return 'draft';
     if (can('budget.manage')) return 'setup';
     return null;
   }
@@ -1776,7 +1781,7 @@
     const mainItems = (x) => (x.type === 'CBS' ? sortedItems(x).filter((it) => depth(it) === 0) : x.items);
     const v = b || (copySrc ? {
       type: copySrc.type, structure: copySrc.structure || 'items', company: copySrc.company, fiscalYear: copySrc.fiscalYear, code: '', name: copySrc.name,
-      department: copySrc.department || '', ownerId: setup || isProxy() ? copySrc.ownerId : u.id, ownerName: setup ? copySrc.ownerName || '' : '', note: copySrc.note || '',
+      department: deptsOf(user(setup || isProxy() ? copySrc.ownerId : u.id)).includes(copySrc.department) ? copySrc.department : '', ownerId: setup || isProxy() ? copySrc.ownerId : u.id, ownerName: setup ? copySrc.ownerName || '' : '', note: copySrc.note || '',
       listGroup: copySrc.listGroup || '', priorityGroup: copySrc.priorityGroup || '', investGroup: copySrc.investGroup || '', priorityReason: copySrc.priorityReason || '', financeOwner: copySrc.financeOwner || '',
       // คัดลอกรายการหลักพร้อมวงเงิน — Item ย่อย / ข้อมูลการอนุมัติ / ไฟล์แนบไม่ติดไป
       items: copySrc.structure === 'project' ? [{ code: '', name: 'งบรวมทั้งโครงการ', amount: budgetTotal(copySrc), vat: 0 }]
@@ -1820,7 +1825,7 @@
       field(dual('ชื่อโครงการ', 'ชื่อรายการ/โครงการ'), '<input name="name" required placeholder="ระบุชื่อโครงการ" value="' + esc(v.name) + '">') +
       '</div><div class="row">' +
       field('บริษัท', select('company', optList(db.master.companies.filter((c) => scopeOk(c.code) || c.code === v.company), 'code', (c) => c.code + (c.name ? ' — ' + c.name : ''), v.company))) +
-      field('หน่วยงานที่ขอ', select('department', '<option value="">— เลือกหน่วยงาน —</option>' + optList(db.master.departments, 'name', (d) => d.name, v.department), ' required')) +
+      field('หน่วยงานที่ขอ (หน่วยงานของเจ้าของงบ)', select('department', budgetDeptOptions(v.ownerId, v.department), ' required')) +
       '</div><div class="form-divider"></div><div class="row">' +
       field('กลุ่ม Priority', select('priorityGroup', '<option value="">— เลือก —</option>' + optList(db.master.priorityGroups, 'name', (x) => x.name, v.priorityGroup || ''))) +
       field('กลุ่ม Priority การลงทุน (กลุ่มการลงทุน New)', select('investGroup', '<option value="">— เลือก —</option>' + optList(db.master.investGroups, 'name', (x) => x.name, v.investGroup || '')), ' data-for="CAPEX"') +
@@ -1908,6 +1913,14 @@
     return m;
   }
 
+  /** ตัวเลือกหน่วยงานของงบ: เฉพาะหน่วยงานของเจ้าของงบ (Business มี 1 หน่วยงาน → ใส่ให้เลย) · บริษัทของงบเลือกได้อิสระ ไม่ผูกกับหน่วยงาน */
+  function budgetDeptOptions(ownerId, current) {
+    const ds = deptsOf(user(ownerId));
+    const extra = current && !ds.includes(current) ? [current] : [];
+    if (!ds.length && !extra.length) return '<option value="">' + (ownerId ? '— เจ้าของงบยังไม่มีหน่วยงาน —' : '— เลือกเจ้าของงบก่อน —') + '</option>';
+    const sel = current || (ds.length === 1 ? ds[0] : '');
+    return (ds.length === 1 && !extra.length ? '' : '<option value="">— เลือกหน่วยงาน —</option>') + ds.concat(extra).map((d) => opt(d, d + (ds.includes(d) ? '' : ' (ไม่ตรงกับหน่วยงานของเจ้าของงบ)'), sel)).join('');
+  }
   function bindBudgetForm() {
     const form = document.getElementById('budgetForm');
     if (!form) return;
@@ -1922,6 +1935,12 @@
         if (!copySel.value) return;
         if (form.elements.code.value.trim() && !confirm('ข้อมูลที่กรอกไว้ในฟอร์มนี้จะถูกแทนที่ด้วยข้อมูลที่คัดลอก ต้องการดำเนินการต่อ?')) return;
         go('#/budget/new?copy=' + copySel.value);
+      });
+    }
+    // ผู้คุมงบเลือกเจ้าของงบ → หน่วยงานของงบตามหน่วยงานของเจ้าของงบนั้น
+    if (form.elements.ownerId && form.elements.ownerId.tagName === 'SELECT') {
+      form.elements.ownerId.addEventListener('change', () => {
+        form.elements.department.innerHTML = budgetDeptOptions(form.elements.ownerId.value, '');
       });
     }
     const curType = () => (form.querySelector('[name="type"]:checked') || {}).value || 'CAPEX';
@@ -2188,7 +2207,7 @@
     }
     if (editable) actions.push('<a class="btn" href="#/budget/' + b.id + '/edit">แก้ไขร่าง</a>');
     // คัดลอกเป็นงบใหม่: Business เจ้าของงบ (ทุกประเภท) · ผู้คุมงบ (ทุกงบ — ลงให้ Business)
-    if (state !== 'cancelled' && ((acts && can('budget.create')) || (!can('budget.create') && can('budget.manage')))) actions.push('<a class="btn" href="#/budget/new?copy=' + b.id + '">คัดลอกเป็นงบใหม่</a>');
+    if (state !== 'cancelled' && ((acts && can('budget.create') && !proxyOnly()) || (!can('budget.create') && can('budget.manage')))) actions.push('<a class="btn" href="#/budget/new?copy=' + b.id + '">คัดลอกเป็นงบใหม่</a>');
     const setupEdit = b.setup && waitingOpen(b) && can('budget.manage');
     if (setupEdit) actions.push('<a class="btn" href="#/budget/' + b.id + '/edit">แก้ไขงบ</a>');
     if (openFlow(b) && groupLead(b).openMemo && b.type === 'CAPEX' && (own || canViewAll() || actsFor(b))) actions.push('<a class="btn" href="#/budget/' + b.id + '/memo' + (canEditOpenMemo(groupLead(b)) ? '' : '?view=1') + '">Memo ขอดำเนินการใช้งบ</a>');
@@ -5732,7 +5751,7 @@
       const cuts = db.requests.filter((r) => reqScoped(r) && needsCut(r));
       tasks.push(task('รอตัดงบ / ปิดยอด', cuts.length, '#/tasks?tab=cuts', cuts.length ? 'รวม ' + money(cuts.reduce((s2, r) => s2 + Math.max(r.amount - cutTotal(r), 0), 0)) + ' บาท' : ''));
     }
-    if (can('budget.create')) {
+    if (can('budget.create') && !proxyOnly()) {
       const mineB = db.budgets.filter(actsFor);
       tasks.push(task('งบรอขอดำเนินการใช้งบ', mineB.filter((b) => b.state === 'pending_open' && b.ownerId === u.id).length, '#/tasks?tab=toopen', 'ทำ Memo ให้ผู้บริหารเซ็น'),
         task('งบร่าง', mineB.filter((b) => b.state === 'draft').length, '#/tasks?tab=drafts'),
@@ -5787,9 +5806,11 @@
       cols: [{ k: 'code', label: 'รหัสบริษัท', w: '10rem' }, { k: 'name', label: 'ชื่อบริษัท' }, 
         { k: 'logo', label: 'โลโก้หัวกระดาษ Memo', type: 'image', w: '14rem' }],
       inUse: (it) => db.budgets.some((b) => b.company === it.code) },
-    { key: 'departments', title: 'หน่วยงาน', hint: 'ตัวเลือกหน่วยงานของงบ และตัวกรองในหน้ารายการงบ', lock: false,
-      cols: [{ k: 'name', label: 'ชื่อหน่วยงาน' }],
-      inUse: (it) => db.budgets.some((b) => b.department === it.name),
+    { key: 'departments', title: 'หน่วยงาน', hint: 'หน่วยงานอยู่ใต้บริษัท — ต้องเลือกบริษัทของหน่วยงานทุกรายการ · ชื่อหน่วยงานต้องไม่ซ้ำกันทั้งระบบ · งบจะขึ้นเป็นหน่วยงานของเจ้าของงบ (เลือกบริษัทของงบเป็นบริษัทอื่นได้ ไม่ผูกกับบริษัทของหน่วยงาน) · ใช้เป็นตัวกรองในหน้ารายการงบ', lock: false,
+      cols: [{ k: 'name', label: 'ชื่อหน่วยงาน' },
+        { k: 'company', label: 'บริษัทของหน่วยงาน', type: 'select', required: true, w: '16rem',
+          options: () => [['', '— เลือกบริษัท —']].concat(db.master.companies.map((c) => [c.code, c.code + (c.name ? ' — ' + c.name : '')])) }],
+      inUse: (it) => db.budgets.some((b) => b.department === it.name) || USERS.some((u) => deptsOf(u).includes(it.name)),
       rename: (from, to) => db.budgets.forEach((b) => { if (b.department === from) b.department = to; }) },
     { key: 'listGroups', title: 'กลุ่มรายการ', hint: 'จัดกลุ่มโครงการตามที่ใช้ในไฟล์สรุปโปรเจ็ค เช่น "1. วงศ์สว่าง" (ตั้งว่างไว้ได้ — Import จากไฟล์จะเพิ่มให้เอง)', lock: false, optional: true,
       cols: [{ k: 'name', label: 'กลุ่มรายการ' }],
@@ -5820,7 +5841,7 @@
         '<button type="button" class="btn small" data-logo-clear title="ลบโลโก้">ลบ</button></div></td>'
       : c.type === 'select'
       ? '<td' + (c.w ? ' style="width:' + c.w + '"' : '') + '><div class="select-wrap"><select data-k="' + c.k + '" aria-label="' + esc(c.label) + '">' +
-        c.options.map(([v, t]) => opt(v, t, isNew ? '' : it[c.k] || '')).join('') + '</select></div></td>'
+        (typeof c.options === 'function' ? c.options() : c.options).map(([v, t]) => opt(v, t, isNew ? '' : it[c.k] || '')).join('') + '</select></div></td>'
       : '<td' + (c.w ? ' style="width:' + c.w + '"' : '') + '><input data-k="' + c.k + '" value="' + esc(it[c.k] || '') + '" aria-label="' + esc(c.label) + '"' +
       (sec.lock && i === 0 && !isNew ? ' readonly class="locked"' : '') + '></td>')).join('') +
       '<td style="width:3rem"><button type="button" class="btn small bad" data-m-remove title="ลบ">×</button></td></tr>';
@@ -5897,6 +5918,9 @@
         const errors = [];
         if (!rows.length && !sec.optional) errors.push('ต้องมีอย่างน้อย 1 รายการ');
         rows.forEach((it) => { if (!it[keyCol]) errors.push('กรุณากรอก' + sec.cols[0].label); });
+        sec.cols.filter((c) => c.required).forEach((c) => { if (rows.some((it) => it[keyCol] && !it[c.k])) errors.push('กรุณาเลือก' + c.label + 'ให้ครบทุกรายการ'); });
+        // หน่วยงานที่มีผู้ใช้สังกัดอยู่ เปลี่ยนชื่อไม่ได้ (ผู้ใช้เก็บชื่อหน่วยงาน) — ย้ายผู้ใช้ก่อน
+        if (sec.key === 'departments') rows.filter((it) => it.orig && it.orig !== it.name && USERS.some((u) => deptsOf(u).includes(it.orig))).forEach((it) => errors.push('เปลี่ยนชื่อ "' + it.orig + '" ไม่ได้ — ยังมีผู้ใช้สังกัดหน่วยงานนี้ (แก้หน่วยงานของผู้ใช้ก่อน)'));
         const keys = rows.map((it) => it[keyCol].toLowerCase());
         if (keys.some((k, i) => k && keys.indexOf(k) !== i)) errors.push(sec.cols[0].label + 'ซ้ำกัน');
         if (errors.length) { showErrors(errors); return; }
@@ -6614,6 +6638,30 @@
       takeFlash() + '<div id="formError"></div><div id="adminBox">' + (tab === 'roles' ? viewAdminRoles() : viewAdminUsers()) + '</div>';
   }
 
+  /** ข้อมูลที่ฟอร์มผู้ใช้ต้องกรอก ตามสิทธิ์ของบทบาทที่ติ๊ก: ฝั่ง Business (สังกัดบริษัท+หน่วยงาน) · ธุรการ (หลายหน่วยงาน) · ผู้ทำงาน (บริษัทที่รับผิดชอบ) · Admin (ไม่ต้อง) */
+  function userNeeds(roles) {
+    const perms = uniq([].concat(roles).flatMap((k) => DEMO_ROLE_PERMS[k] || []));
+    const admin = [].concat(roles).includes('admin');
+    const proxy = perms.includes('business.proxy');
+    const business = !proxy && (perms.includes('request.create') || perms.includes('budget.create'));
+    const work = !admin && roleSeesWork(roles);
+    return { affil: business, deptMulti: proxy, companies: work, proxy };
+  }
+  /** คอลัมน์ "สังกัด / รับผิดชอบ" ในตารางผู้ใช้ */
+  function userScopeCell(u) {
+    const roles = rolesOf(u), need = userNeeds(roles), parts = [];
+    if (roles.includes('admin')) parts.push('<span class="muted">ทุกบริษัท</span>');
+    if (need.affil || need.deptMulti || deptsOf(u).length || u.company) {
+      const t = [u.company, deptsOf(u).join(', ')].filter(Boolean).join(' · ');
+      parts.push(t ? esc(t) : (need.affil ? '<span class="badge cancelled">ยังไม่กำหนดสังกัด</span>' : '–'));
+    }
+    if (need.companies && !roles.includes('admin')) {
+      const cs = Array.isArray(u.companies) ? u.companies : [];
+      parts.push(cs.length ? '<div class="muted">รับผิดชอบ ' + esc(cs.join(', ')) + '</div>' : '<div><span class="badge cancelled">ยังไม่กำหนดบริษัทที่รับผิดชอบ</span></div>');
+    }
+    return parts.join('') || '–';
+  }
+
   function viewAdminUsers() {
     const reset = adminResetCount();
     const roleSel = (id) => '<div class="select-wrap"><select ' + id + '>' + roleKeys().map((k) => opt(k, ROLE_LABEL[k] || k, '')).join('') + '</select></div>';
@@ -6624,22 +6672,27 @@
       fld('อีเมล', '<input name="email" type="email" required autocomplete="off" placeholder="name@company.com">') +
       fld('ชื่อ-นามสกุล', '<input name="name" required>') +
       fld('ตำแหน่ง', '<input name="title">') +
-      fld('หน่วยงาน', '<div class="select-wrap"><select name="department"><option value="">— เลือกหน่วยงาน —</option>' + db.master.departments.map((d) => opt(d.name, d.name, '')).join('') + '</select></div>') +
-      fld('บริษัท', '<div class="select-wrap"><select name="company"><option value="">— เลือกบริษัท —</option>' + db.master.companies.map((c) => opt(c.code, c.code + (c.name ? ' — ' + c.name : ''), '')).join('') + '</select></div>') +
       '<div class="field full req" id="roleField"><span>บทบาท (เลือกได้หลายบทบาท — สิทธิ์รวมกัน · แสดงบทบาทหลักเป็นบทบาทแรกตามลำดับในรายการ)</span><div class="actions" id="roleChecks">' +
       roleKeys().map((k) => '<label class="chip"><input type="checkbox" name="roles" value="' + esc(k) + '"> ' + esc(ROLE_LABEL[k] || k) + '</label>').join('') + '</div></div>' +
-      '<div class="field full" id="coField"><span>บริษัทที่ดูงบ / งานได้ (ผู้คุมงบ · จัดซื้อ — เลือกได้หลายบริษัท)</span><div class="actions" id="coChecks">' +
+      // ฝั่ง Business: สังกัดของตัวเอง — บริษัท 1 บริษัท + หน่วยงาน 1 หน่วยงาน (หน่วยงานต้องอยู่ใต้บริษัทที่เลือก)
+      '<div class="field full" id="affilField" style="display:none"><span>สังกัดของผู้ใช้ (Business — งบที่ขอจะขึ้นเป็นหน่วยงานนี้ · เลือกบริษัทอื่นตอนขอใช้งบได้)</span><div class="form-grid">' +
+      fld('บริษัทสังกัด', '<div class="select-wrap"><select name="company"><option value="">— เลือกบริษัท —</option>' + db.master.companies.map((c) => opt(c.code, c.code + (c.name ? ' — ' + c.name : ''), '')).join('') + '</select></div>') +
+      fld('หน่วยงาน', '<div class="select-wrap"><select name="department"><option value="">— เลือกหน่วยงาน —</option></select></div>') + '</div></div>' +
+      // ธุรการ: ช่วยหลายหน่วยงานได้ (Admin ตั้งให้)
+      '<div class="field full" id="deptMultiField" style="display:none"><span>หน่วยงานที่ช่วยงาน (ธุรการ — เลือกได้หลายหน่วยงาน)</span><div class="actions" id="deptChecks">' +
+      db.master.departments.map((d) => '<label class="chip"><input type="checkbox" name="departments" value="' + esc(d.name) + '"> ' + esc(d.name) + (d.company ? ' · ' + esc(d.company) : '') + '</label>').join('') + '</div></div>' +
+      '<div class="field full" id="coField" style="display:none"><span>บริษัทที่รับผิดชอบ (ผู้คุมงบ · บัญชี · จัดซื้อ · ธุรการ — เลือกได้หลายบริษัท · เห็นและทำงานของบริษัทที่เลือกเท่านั้น)</span><div class="actions" id="coChecks">' +
       db.master.companies.map((c) => '<label class="chip"><input type="checkbox" name="companies" value="' + esc(c.code) + '"> ' + esc(c.code) + '</label>').join('') + '</div></div>' +
       '<div class="field full" id="proxyField" style="display:none"><span>ช่วยงานให้ Business (ธุรการ — เห็นและทำแทนเฉพาะงบของคนที่เลือก · ไม่เลือกเลย = เห็นทั้งบริษัทไปก่อน)</span><div class="actions" id="proxyChecks">' +
-      USERS.filter((x) => canRequestUser(x) && x.active !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'th')).map((x) => '<label class="chip"><input type="checkbox" name="proxyFor" value="' + esc(x.id) + '"> ' + esc(x.name) + (x.department ? ' · ' + esc(x.department) : '') + '</label>').join('') + '</div></div>' +
+      USERS.filter((x) => canRequestUser(x) && x.active !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'th')).map((x) => '<label class="chip"><input type="checkbox" name="proxyFor" value="' + esc(x.id) + '"> ' + esc(x.name) + (deptsOf(x).length ? ' · ' + esc(deptsOf(x).join(', ')) : '') + '</label>').join('') + '</div></div>' +
       '</div><div class="muted section-hint" id="userFormHint">ผู้ดูแลระบบไม่ตั้งรหัสผ่านให้ — ผู้ใช้เข้าหน้าล็อกอิน → "' + (AUTH_REMOTE ? 'เปิดใช้ครั้งแรก' : 'ตั้งรหัสผ่าน') + '" แล้วกรอกอีเมลนี้เพื่อตั้งรหัสผ่านเอง</div>' +
       '<div class="actions"><button class="btn primary" type="submit">บันทึก</button><button class="btn" type="button" data-user-cancel>ยกเลิก</button></div></form></div></div></div>';
     const rows = USERS.map((u) => {
       const st = accountState(u);
       const self = u.id === me().id;
-      return '<tr data-uid="' + esc(u.id) + '" data-search="' + esc([u.email, u.name, u.title, u.department, u.company].join(' ').toLowerCase()) + '" data-role="' + esc(rolesOf(u).join(' ')) + '" data-state="' + st.key + '">' +
-        '<td>' + esc(u.name) + (self ? ' <span class="muted">(คุณ)</span>' : '') + '</td><td>' + esc(u.email) + '</td><td>' + esc(u.title || '–') + '</td><td>' + esc(u.department || '–') + '</td><td>' + esc(u.company || '–') + '</td>' +
-        '<td>' + (rolesOf(u).includes('admin') ? '<span class="muted">ทุกบริษัท</span>' : Array.isArray(u.companies) ? (u.companies.length ? esc(u.companies.join(', ')) : (roleSeesWork(rolesOf(u)) ? '<span class="badge cancelled">ยังไม่กำหนด</span>' : '–')) : '–') + '</td>' +
+      return '<tr data-uid="' + esc(u.id) + '" data-search="' + esc([u.email, u.name, u.title, deptsOf(u).join(' '), u.company, (u.companies || []).join(' ')].join(' ').toLowerCase()) + '" data-role="' + esc(rolesOf(u).join(' ')) + '" data-state="' + st.key + '">' +
+        '<td>' + esc(u.name) + (self ? ' <span class="muted">(คุณ)</span>' : '') + '</td><td>' + esc(u.email) + '</td><td>' + esc(u.title || '–') + '</td>' +
+        '<td>' + userScopeCell(u) + '</td>' +
         '<td>' + esc(roleLabel(u)) + '</td><td><span class="badge ' + ACCOUNT_BADGE[st.key] + '">' + esc(st.label) + '</span></td>' +
         '<td class="nowrap">' + (u.lastLoginAt ? fmtDate(u.lastLoginAt) : '–') + '</td>' +
         '<td class="nowrap"><button type="button" class="btn small" data-user-edit>แก้ไข</button> ' +
@@ -6651,8 +6704,8 @@
       '<div class="admin-filters"><label class="input-wrap search">' + ICON_SEARCH + '<input id="userQ" type="search" placeholder="ค้นหาชื่อ อีเมล ตำแหน่ง หน่วยงาน" aria-label="ค้นหาผู้ใช้"></label>' +
       '<div class="select-wrap"><select id="userRoleF" aria-label="กรองบทบาท">' + opt('', 'บทบาท: ทั้งหมด', '') + roleKeys().map((k) => opt(k, ROLE_LABEL[k] || k, '')).join('') + '</select></div>' +
       '<div class="select-wrap"><select id="userStateF" aria-label="กรองสถานะ">' + opt('', 'สถานะ: ทั้งหมด', '') + ACCOUNT_STATES.map(([k, t]) => opt(k, t, '')).join('') + '</select></div></div>' +
-      '<div class="table-wrap"><table id="userTable"><thead><tr><th>ชื่อ</th><th>อีเมล</th><th>ตำแหน่ง</th><th>หน่วยงาน</th><th>บริษัท</th><th>ดูงานได้</th><th>บทบาท</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>' + rows +
-      '<tr id="userEmpty" hidden><td colspan="10" class="empty">ไม่พบผู้ใช้</td></tr></tbody></table></div>';
+      '<div class="table-wrap"><table id="userTable"><thead><tr><th>ชื่อ</th><th>อีเมล</th><th>ตำแหน่ง</th><th>สังกัด / รับผิดชอบ</th><th>บทบาท</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>' + rows +
+      '<tr id="userEmpty" hidden><td colspan="8" class="empty">ไม่พบผู้ใช้</td></tr></tbody></table></div>';
   }
 
   // เลือกบทบาททางซ้าย → ติ๊กสิทธิ์ของบทบาทนั้นทางขวา (ไม่มีตารางทุกบทบาทพร้อมกัน) — บทบาทที่เลือกจำไว้ระหว่างเปลี่ยนหน้า
@@ -6830,24 +6883,44 @@
     const errModal = (m) => { document.getElementById('userFormError').innerHTML = '<div class="alert error" role="alert">' + esc(m) + '</div>'; card.querySelector('.viewer-form').scrollTop = 0; };
     const closeForm = () => { card.hidden = true; document.getElementById('userFormError').innerHTML = ''; document.removeEventListener('keydown', onEsc); };
     const onEsc = (e) => { if (e.key === 'Escape') closeForm(); };
-    // ช่อง "ช่วยงานให้ Business" แสดงเมื่อเลือกบทบาทที่มีสิทธิ์ทำแทน Business (business.proxy)
+    // ช่องที่ต้องกรอกเปลี่ยนตามบทบาทที่ติ๊ก: Business = บริษัท+หน่วยงาน (อย่างละ 1) · ธุรการ = หลายหน่วยงาน + บริษัทที่รับผิดชอบ + ช่วยงานให้ Business · ผู้คุมงบ/บัญชี/จัดซื้อ = บริษัทที่รับผิดชอบ
+    const checkedRoles = () => Array.from(form.querySelectorAll('[name=roles]:checked')).map((c) => c.value);
+    const showIf = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
     const syncProxyField = () => {
-      const on = Array.from(form.querySelectorAll('[name=roles]:checked')).some((c) => (DEMO_ROLE_PERMS[c.value] || []).includes('business.proxy'));
-      document.getElementById('proxyField').style.display = on ? '' : 'none';
+      const need = userNeeds(checkedRoles());
+      showIf('affilField', need.affil);
+      showIf('deptMultiField', need.deptMulti);
+      showIf('coField', need.companies);
+      showIf('proxyField', need.proxy);
     };
-    form.addEventListener('change', (e) => { if (e.target && e.target.name === 'roles') syncProxyField(); });
+    // หน่วยงานของ Business: เลือกได้เฉพาะที่อยู่ใต้บริษัทสังกัดที่เลือก (ข้อมูลเก่าที่ยังไม่ระบุบริษัทเลือกได้ด้วย)
+    const fillDeptSelect = (selected) => {
+      const sel = form.elements.department, company = form.elements.company.value;
+      const list = db.master.departments.filter((d) => !d.company || d.company === company);
+      sel.innerHTML = '<option value="">' + (company ? (list.length ? '— เลือกหน่วยงาน —' : '— ยังไม่มีหน่วยงานของบริษัทนี้ (เพิ่มที่ข้อมูลหลัก → หน่วยงาน) —') : '— เลือกบริษัทก่อน —') + '</option>' +
+        list.map((d) => opt(d.name, d.name + (d.company ? '' : ' (ยังไม่ระบุบริษัท)'), selected || '')).join('') +
+        (selected && !list.some((d) => d.name === selected) ? opt(selected, selected + ' (ไม่อยู่ใต้บริษัทนี้)', selected) : '');
+      sel.value = selected || '';
+    };
+    form.addEventListener('change', (e) => {
+      if (!e.target) return;
+      if (e.target.name === 'roles') syncProxyField();
+      else if (e.target.name === 'company') fillDeptSelect('');
+    });
     const openForm = (u) => {
       editId = u ? u.id : '';
       form.reset();
       document.getElementById('userFormError').innerHTML = '';
       document.getElementById('userFormTitle').textContent = u ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้';
       document.getElementById('userFormHint').hidden = !!u;
-      ['email', 'name', 'title', 'department', 'company'].forEach((k) => {
-        const el = form.elements[k];
-        const v = u ? u[k] || '' : '';
-        if (el.tagName === 'SELECT' && v && !Array.from(el.options).some((o) => o.value === v)) el.appendChild(new Option(v, v)); // ค่าเดิมที่ไม่อยู่ในข้อมูลหลักแล้ว ไม่ให้หาย
-        el.value = v;
-      });
+      ['email', 'name', 'title'].forEach((k) => { form.elements[k].value = u ? u[k] || '' : ''; });
+      const cv = u ? u.company || '' : '';
+      const csel = form.elements.company;
+      if (cv && !Array.from(csel.options).some((o) => o.value === cv)) csel.appendChild(new Option(cv, cv)); // ค่าเดิมที่ไม่อยู่ในข้อมูลหลักแล้ว ไม่ให้หาย
+      csel.value = cv;
+      fillDeptSelect(u ? deptsOf(u)[0] || '' : '');
+      const ds = u ? deptsOf(u) : [];
+      form.querySelectorAll('[name=departments]').forEach((c) => { c.checked = ds.includes(c.value); });
       const rs = u ? rolesOf(u) : ['business'];
       form.querySelectorAll('[name=roles]').forEach((c) => { c.checked = rs.includes(c.value); });
       const cos = u ? (Array.isArray(u.companies) ? u.companies : []) : [];
@@ -6861,23 +6934,27 @@
       (form.elements.email.readOnly ? form.elements.name : form.elements.email).focus();
     };
     app.querySelector('[data-user-add]').addEventListener('click', () => openForm(null));
-    // เลือกบริษัทของบัญชี แล้วยังไม่ได้ติ๊กบริษัทที่ดูงานได้ → ติ๊กบริษัทนั้นให้ก่อน (แก้เพิ่มได้)
-    form.elements.company.addEventListener('change', () => {
-      const boxes = Array.from(form.querySelectorAll('[name=companies]'));
-      if (form.elements.company.value && !boxes.some((c) => c.checked)) boxes.forEach((c) => { c.checked = c.value === form.elements.company.value; });
-    });
     card.addEventListener('click', (e) => { if (e.target === card || e.target.closest('[data-user-close], [data-user-cancel]')) closeForm(); });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = form.elements;
-      const data = { email: f.email.value, name: f.name.value, title: f.title.value, department: f.department.value, company: f.company.value,
-        roles: Array.from(form.querySelectorAll('[name=roles]:checked')).map((c) => c.value),
-        companies: Array.from(form.querySelectorAll('[name=companies]:checked')).map((c) => c.value) };
+      const roles = checkedRoles();
+      if (!roles.length) { errModal('เลือกบทบาทอย่างน้อย 1 บทบาท'); return; }
+      const need = userNeeds(roles);
+      const data = { email: f.email.value, name: f.name.value, title: f.title.value, roles, company: '', departments: [], companies: [] };
+      if (need.affil) {
+        data.company = f.company.value;
+        data.departments = f.department.value ? [f.department.value] : [];
+        if (!data.company) { errModal('เลือกบริษัทสังกัดของผู้ใช้'); return; }
+        if (!data.departments.length) { errModal('เลือกหน่วยงานของผู้ใช้ (1 หน่วยงาน) — งบที่ผู้ใช้ขอจะขึ้นเป็นหน่วยงานนี้'); return; }
+      }
+      if (need.deptMulti) data.departments = Array.from(form.querySelectorAll('[name=departments]:checked')).map((c) => c.value);
+      if (need.companies) {
+        data.companies = Array.from(form.querySelectorAll('[name=companies]:checked')).map((c) => c.value);
+        if (!data.companies.length) { errModal('เลือกบริษัทที่รับผิดชอบอย่างน้อย 1 บริษัท — บทบาทนี้เห็นและทำงานของบริษัทที่เลือกเท่านั้น'); return; }
+      }
       // ธุรการ: รายชื่อ Business ที่ช่วย (ส่งเฉพาะเมื่อช่องนี้แสดงอยู่ — ไม่งั้นคงค่าเดิม)
-      if (document.getElementById('proxyField').style.display !== 'none') data.proxyFor = Array.from(form.querySelectorAll('[name=proxyFor]:checked')).map((c) => c.value);
-      if (!data.roles.length) { errModal('เลือกบทบาทอย่างน้อย 1 บทบาท'); return; }
-      const sees = roleSeesWork(data.roles);
-      if (sees && !data.roles.includes('admin') && !data.companies.length) { errModal('เลือกบริษัทที่ดูงบ / งานได้อย่างน้อย 1 บริษัท — บทบาทนี้เห็นงานของบริษัทตามที่กำหนด'); return; }
+      if (need.proxy) data.proxyFor = Array.from(form.querySelectorAll('[name=proxyFor]:checked')).map((c) => c.value);
       const submitBtn = form.querySelector('button[type=submit]');
       submitBtn.disabled = true;
       try {
@@ -7421,7 +7498,7 @@
 
   function renderUserButton() {
     document.getElementById('userName').textContent = me().name;
-    document.getElementById('userPos').textContent = [me().title, me().department].filter(Boolean).join(' · ');
+    document.getElementById('userPos').textContent = [me().title, deptsOf(me()).join(', ')].filter(Boolean).join(' · ');
   }
 
   /** เมนูผู้ใช้มุมขวาบน: บัญชีของฉัน / ออกจากระบบ (โหมดทดลองมีเครื่องมือล้างข้อมูลทดสอบเพิ่ม) */
@@ -7905,7 +7982,7 @@
     const row = (k, v) => '<tr><th scope="row">' + k + '</th><td>' + (v ? esc(v) : '<span class="muted">-</span>') + '</td></tr>';
     return '<div class="page-head"><div><h1>บัญชีของฉัน</h1><div class="page-sub">ข้อมูลบัญชีให้ผู้ดูแลระบบแก้ไข — เปลี่ยนรหัสผ่านได้เอง</div></div></div>' + takeFlash() +
       '<section class="card form-section"><div class="section-head"><h2 class="section-title">ข้อมูลบัญชี</h2></div><div class="table-wrap"><table><tbody>' +
-      row('ชื่อ', u.name) + row('อีเมล', u.email) + row('ตำแหน่ง', u.title) + row('หน่วยงาน', u.department) + row('บริษัท', u.company) + (Array.isArray(u.companies) && u.role !== 'admin' ? row('บริษัทที่ดูงบ / งานได้', u.companies.join(', ') || 'ยังไม่ได้กำหนด — ติดต่อผู้ดูแลระบบ') : '') + row('บทบาท', roleLabel(u)) +
+      row('ชื่อ', u.name) + row('อีเมล', u.email) + row('ตำแหน่ง', u.title) + row('หน่วยงาน', deptsOf(u).join(', ')) + row('บริษัท', u.company) + (Array.isArray(u.companies) && u.role !== 'admin' ? row('บริษัทที่ดูงบ / งานได้', u.companies.join(', ') || 'ยังไม่ได้กำหนด — ติดต่อผู้ดูแลระบบ') : '') + row('บทบาท', roleLabel(u)) +
       '</tbody></table></div></section>' +
       (REMOTE ? '' : '<section class="card form-section"><div class="section-head"><h2 class="section-title">เปลี่ยนรหัสผ่าน</h2></div>' +
         (u.pwHash ? '<form id="pwForm" class="form-narrow"><div id="pwMsg"></div>' +
