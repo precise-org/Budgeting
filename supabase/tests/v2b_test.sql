@@ -22,6 +22,8 @@ insert into public.v2_profiles (id, email, name, role, companies, active) values
 update public.v2_profiles set departments = array['ฝ่ายวิศวกรรม'] where id in ('00000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000009');
 update public.v2_profiles set departments = array['ฝ่ายขาย'] where id in ('00000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000011');
 grant usage on schema public to anon, authenticated;
+-- ไฟล์นี้ทดสอบการมองเห็น / สิทธิ์เขียนด้วยเอกสารจำลองที่ไม่ผ่านขั้นตอนจริง จึงปิดกฎขั้นตอนไว้ — กฎขั้นตอนทดสอบใน v2c_test.sql
+update public.v2_settings set value = 'off' where key = 'enforce_rules';
 
 create or replace function pg_temp.as_user(n int) returns void language plpgsql as $$
 begin
