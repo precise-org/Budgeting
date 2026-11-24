@@ -54,7 +54,7 @@
 | หัวหน้า | `.page-head` > `h1` (22px/700 Kanit), ปุ่มหลัก / ตัวเลือกวางขวาแถวเดียวกัน (`.head-actions`) |
 | Dropdown | `select` (+ `.select-wrap` / `.input-wrap`) — Sarabun 13px สูง ~37px มุม 8px ขอบ `--line` ลูกศร SVG |
 | Dropdown ค้นหาได้ | `select` ที่มีตัวเลือกตั้งแต่ 8 รายการ ใช้ `.ss-pop` (กล่องค้นหา `.ss-search` + รายการ `.ss-list` > `.ss-opt` — hover `--brand-soft` ที่เลือก `--brand`) เปิดเองอัตโนมัติ (js `initSearchSelect`) ไม่ต้องทำ markup เพิ่ม · ไม่ต้องการให้ใช้กับ select ไหน ใส่ `data-native` |
-| แท็บ | `.tabs` > `a` (13.5px/600, เส้นใต้ `--brand` เมื่อเลือก) |
+| แท็บ | `.tabs` > `a` (13.5px/600, เส้นใต้ `--brand` เมื่อเลือก) · แท็บมีตัวเลข `.task-tabs` ไม่มีแถบเลื่อน (จอแคบตัดขึ้นบรรทัดใหม่) |
 | สวิตช์พิลล์ | `.seg` > `a.active` (พื้น `--brand` ตัวขาว) |
 | ปุ่ม | `.btn` (13px/600 มุม 6px), `.btn.primary` (พื้น `--brand`), `.btn.bad`, `.btn.small`; disabled เป็นเทา |
 | การ์ด / แผง | `.card`, `.table-wrap` (มุม 14px ขอบ `--line` เงา `--shadow`) |
