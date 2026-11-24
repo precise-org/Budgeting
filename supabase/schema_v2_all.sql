@@ -1051,18 +1051,71 @@ begin
   return jsonb_build_object('now', clock_timestamp(), 'full', p_since is null, 'docs', docs, 'log', lg);
 end $$;
 
+-- ---------------------------------------------------------------- ย้ายใบเบิกเก่าเข้ากฎตัดงบใหม่ (cutRule 2)
+/**
+ * ใบเบิกที่ออกเอกสารแล้วแต่ยังไม่ปิดยอด และออกก่อนกฎตัดงบใหม่ (ยังไม่มี cutRule) → ย้ายเข้ากฎใหม่:
+ *   สำรองจ่าย / จ่ายตรง = ตัดงบเต็มยอดที่อนุมัติ (ถ้ายังไม่มีการตัดงบเลย) แล้วปิดยอด · ถ้ามีการตัดงบบางส่วนแล้ว ปิดยอดด้วยยอดที่ตัดไปแล้ว
+ *   เงินทดรอง = ถือว่าจ่ายเงินทดรองแล้ว (ถ้ายังไม่มี) รอ Business / ธุรการเคลียร์ · ถ้าเคลียร์ไปแล้ว ปิดยอด
+ *   PR/PO = ถ้ามี PO แล้ว ปิดยอด · ถ้ายังไม่มี รอจัดซื้อบันทึก PO
+ * รันซ้ำได้ (แตะเฉพาะใบที่ยังไม่มี cutRule)
+ */
+create or replace function public._v2_migrate_cut_rule() returns integer
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  r record; d jsonb; cuts jsonb; ut text; amt numeric; actual numeric; by_t text; at_t text; n integer := 0; do_close boolean; note_t text;
+begin
+  at_t := to_char(clock_timestamp() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+  for r in select * from public.v2_docs where kind = 'request' and not deleted and data ->> 'status' = 'approved' and not (data ? 'cutRule') for update loop
+    d := r.data;
+    ut := coalesce(nullif(d ->> 'useType', ''), 'direct');
+    cuts := case when jsonb_typeof(d -> 'cuts') = 'array' then d -> 'cuts' else '[]'::jsonb end;
+    amt := public._v2_num(d ->> 'amount');
+    by_t := coalesce(r.updated_by::text, '');
+    do_close := false;
+    note_t := 'ย้ายเข้ากฎตัดงบใหม่';
+    d := d || jsonb_build_object('cutRule', 2);
+    if ut in ('reimburse', 'direct') then
+      if jsonb_array_length(cuts) = 0 then
+        cuts := jsonb_build_array(jsonb_build_object('id', 'mig-' || r.id, 'kind', case when ut = 'direct' then 'payment' else 'reimburse' end,
+          'date', left(at_t, 10), 'amount', amt, 'note', 'ย้ายเข้ากฎตัดงบใหม่: ตัดงบเต็มยอดที่อนุมัติ', 'by', by_t, 'at', at_t,
+          'attachments', '[]'::jsonb, 'asset', 0, 'expense', 0, 'auto', true));
+      end if;
+      do_close := true;
+    elsif ut = 'advance' then
+      if jsonb_typeof(d -> 'advance') is distinct from 'object' then
+        d := d || jsonb_build_object('advance', jsonb_build_object('date', left(at_t, 10), 'amount', amt, 'by', by_t, 'at', at_t, 'auto', true));
+      end if;
+      do_close := exists (select 1 from jsonb_array_elements(cuts) c where c ->> 'kind' = 'clear');
+    elsif ut = 'prpo' then
+      do_close := exists (select 1 from jsonb_array_elements(cuts) c where c ->> 'kind' = 'po');
+    end if;
+    d := d || jsonb_build_object('cuts', cuts);
+    if do_close then
+      select coalesce(sum(public._v2_num(c ->> 'amount')), 0) into actual from jsonb_array_elements(cuts) c;
+      d := d || jsonb_build_object('status', 'closed', 'closed', jsonb_build_object('at', at_t, 'by', by_t, 'actual', actual,
+        'returned', greatest(0, amt - actual), 'over', greatest(0, actual - amt), 'note', note_t));
+    end if;
+    d := jsonb_set(d, '{events}', coalesce(case when jsonb_typeof(d -> 'events') = 'array' then d -> 'events' end, '[]'::jsonb)
+      || jsonb_build_array(jsonb_build_object('at', at_t, 'by', by_t, 'action', case when do_close then 'ย้ายเข้ากฎตัดงบใหม่ และปิดยอด (ระบบ)' else 'ย้ายเข้ากฎตัดงบใหม่ (ระบบ)' end, 'note', '')));
+    update public.v2_docs set data = d, version = version + 1, updated_at = clock_timestamp() where kind = r.kind and id = r.id;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+select public._v2_migrate_cut_rule();
+
 -- ---------------------------------------------------------------- สิทธิ์เรียกฟังก์ชัน
 
 revoke all on function public._v2_sees_all(text[]), public._v2_company_ok(public.v2_profiles, text),
   public._v2_doc_visible(public.v2_profiles, text, text, text, text, text), public._v2_can_write(text[], text),
   public._v2_log_visible(public.v2_profiles, uuid, text), public._v2_enforce(), public._v2_num(text), public._v2_ledger_total(jsonb), public._v2_items_nogl(jsonb),
-  public._v2_check_doc(public.v2_profiles, text, jsonb, jsonb, jsonb) from public, anon, authenticated;
+  public._v2_check_doc(public.v2_profiles, text, jsonb, jsonb, jsonb), public._v2_migrate_cut_rule() from public, anon, authenticated;
 revoke all on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) from public, anon, authenticated;
 grant execute on function public.v2_save_docs(jsonb, jsonb), public.v2_load(timestamptz) to authenticated;
 
 -- ---------------------------------------------------------------- เลขเวอร์ชันของสคีมา (หน้าเว็บตรวจว่าฐานข้อมูลอัปเดตตรงกับเว็บไหม)
 -- เพิ่มเลขนี้ทุกครั้งที่แก้ schema ที่หน้าเว็บต้องพึ่งพา และแก้ SCHEMA_VERSION ใน js/app.js ให้เท่ากัน (ตรวจด้วย supabase/tests/check_schema.js)
 create or replace function public.v2_schema_version() returns integer
-language sql immutable set search_path = public as $$ select 7 $$;
+language sql immutable set search_path = public as $$ select 8 $$;
 revoke all on function public.v2_schema_version() from public, anon;
 grant execute on function public.v2_schema_version() to authenticated;
