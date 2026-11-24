@@ -1213,5 +1213,17 @@ button.link { color: var(--brand); }
 .edit-table .dept-add-row td { padding-bottom: var(--s-3); }
 .edit-table .dept-unassigned-head td { padding: var(--s-3) var(--s-2); }
 
+/* ---------- Dropdown ที่ค้นหาได้ (select ที่มีตัวเลือกมาก — js: initSearchSelect) ---------- */
+.ss-pop { position: fixed; z-index: 1100; display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-2); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); }
+.ss-pop .ss-search { min-height: var(--control-h); }
+.ss-list { list-style: none; margin: 0; padding: 0; max-height: min(280px, 45vh); overflow-y: auto; }
+.ss-opt, .ss-empty, .ss-group { padding: var(--s-2) var(--s-3); font-size: var(--fs-base); line-height: 1.4; border-radius: var(--radius-sm); }
+.ss-opt { cursor: pointer; color: var(--ink); }
+.ss-opt.active { background: var(--brand-soft); }
+.ss-opt.selected { color: var(--brand); font-weight: 600; }
+.ss-opt.ss-off { color: var(--ink-soft); cursor: not-allowed; opacity: .6; }
+.ss-group { color: var(--ink-soft); font-size: var(--fs-sm); font-weight: 600; }
+.ss-empty { color: var(--ink-soft); }
+
 /* ช่องค้นหาในตาราง (enhanceSearchableTables): ใช้ .admin-filters / .input-wrap.search เดิม เพิ่มเฉพาะการจัดวางตัวนับ */
 .table-search .search-count { align-self: center; font-size: var(--fs-sm); }

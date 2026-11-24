@@ -91,16 +91,17 @@ select pg_temp.as_user(5);
 select pg_temp.ok(pg_temp.try_save('budget', 'ox', 1, pg_temp.bud('CBS', 'review', 5)) = 'OK', 'Business ส่งอนุมัติ OPEX ได้');
 select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'active', 5)) like '%ไม่ถูกขั้นตอน%', 'Business เปิดใช้ OPEX เองจากรออนุมัติไม่ได้');
 select pg_temp.as_user(10);
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'review', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"}]}')) = 'OK', 'บัญชีใส่ GL ได้ตั้งแต่ Business ส่งขอเปิดงบ OPEX (ระหว่างรออนุมัติ)');
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 3, pg_temp.bud('CBS', 'review', 5, '{"items":[{"id":"i1","code":"1","amount":777,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"}]}')) like '%แก้รายการ%', 'บัญชีแก้วงเงินระหว่างรออนุมัติไม่ได้ (แก้ได้เฉพาะ GL)');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'review', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"}]}')) like '%เมื่อผู้คุมงบยืนยัน Item%', 'บัญชีใส่ GL ระหว่างรออนุมัติไม่ได้ (Item ยังไม่ถูกยืนยัน)');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'review', 5, '{"items":[{"id":"i1","code":"1","amount":777,"vat":0,"glCode":"","glName":""}]}')) like '%แก้รายการ%', 'บัญชีแก้วงเงินระหว่างรออนุมัติไม่ได้');
 select pg_temp.as_user(2);
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 3, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"}]}')) = 'OK', 'ผู้คุมงบตรวจผ่านและเปิดใช้ OPEX ขั้นเดียว');
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 4, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"999999","glName":"x"}]}')) like '%GL%', 'ผู้คุมงบแก้ GL ไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"}]}')) like '%GL%', 'ผู้คุมงบเปิดใช้พร้อมแอบใส่ GL ไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 2, pg_temp.bud('CBS', 'active', 5)) = 'OK', 'ผู้คุมงบตรวจผ่านและเปิดใช้ OPEX ขั้นเดียว');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 3, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"999999","glName":"x"}]}')) like '%GL%', 'ผู้คุมงบแก้ GL ไม่ได้');
 select pg_temp.as_user(10);
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 4, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"520202","glName":"บัญชี"}]}')) = 'OK', 'บัญชีใส่ GL ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 3, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"520202","glName":"บัญชี"}]}')) = 'OK', 'บัญชีใส่ GL ได้หลังงบเปิดใช้');
 select pg_temp.as_user(5);
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 5, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"999999","glName":"x"}]}')) like '%GL%', 'Business แก้ GL ไม่ได้');
-select pg_temp.ok(pg_temp.try_save('budget', 'ox', 5, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"520202","glName":"บัญชี"},{"id":"i2","code":"1.1","amount":0,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'Business เพิ่ม Item ย่อย OPEX ได้ (วงเงินรวมไม่เปลี่ยน)');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 4, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"999999","glName":"x"}]}')) like '%GL%', 'Business แก้ GL ไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ox', 4, pg_temp.bud('CBS', 'active', 5, '{"items":[{"id":"i1","code":"1","amount":100000,"vat":0,"glCode":"520202","glName":"บัญชี"},{"id":"i2","code":"1.1","amount":0,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'Business เพิ่ม Item ย่อย OPEX ได้ (วงเงินรวมไม่เปลี่ยน)');
 
 -- OPEX ที่ผู้คุมงบลงไว้ (setup): เจ้าของงบกดเปิดเอง · ผู้อื่นเปิดแทนไม่ได้
 select pg_temp.as_user(2);
@@ -109,6 +110,30 @@ select pg_temp.ok(pg_temp.try_save('budget', 'os', 1, pg_temp.bud('CBS', 'active
 select pg_temp.as_user(5);
 select pg_temp.ok(pg_temp.try_save('budget', 'os', 1, pg_temp.bud('CBS', 'active', 5, '{"setup":true}')) = 'OK', 'Business เจ้าของงบกดขอดำเนินการใช้งบ OPEX ได้');
 select pg_temp.ok(pg_temp.try_save('budget', 'cx', 8, pg_temp.bud('CAPEX', 'active', 5), true) like '%ลบงบ%', 'ลบงบที่เปิดใช้งานไม่ได้');
+
+-- OPEX งบรวมที่ผู้คุมงบลงไว้ → Business ลง Item เอง → ผู้คุมงบยืนยัน Item (ไม่มี Memo) → GL เมื่อเปิดใช้แล้ว
+select pg_temp.as_user(2);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 0, pg_temp.bud('CBS', 'pending_open', 5, '{"setup":true,"structure":"project","items":[]}')) = 'OK', 'ผู้คุมงบลงงบ OPEX แบบงบรวมทั้งโครงการ');
+select pg_temp.as_user(5);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 1, pg_temp.bud('CBS', 'pending_open', 5, '{"setup":true,"structure":"items","items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) like '%ต้องบันทึกว่า Business เป็นผู้ลง%', 'Business ลง Item งบรวมโดยไม่บันทึก breakdown ไม่ได้ (ข้ามการยืนยันไม่ได้)');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 1, pg_temp.bud('CBS', 'pending_open', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'Business ลง Item งบรวม (บันทึก breakdown) ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 2, pg_temp.bud('CBS', 'active', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) like '%ไม่ถูกขั้นตอน%', 'Business เปิดใช้ OPEX ที่ลง Item เองโดยไม่ผ่านผู้คุมงบไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 2, pg_temp.bud('CBS', 'active', 5, '{"setup":true,"structure":"items","items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) like '%ไม่ถูกขั้นตอน%', 'Business ลบ breakdown แล้วเปิดใช้ในรอบเดียวไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 2, pg_temp.bud('CBS', 'open_review', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'Business ส่ง Item ให้ผู้คุมงบยืนยัน (รอผู้คุมงบตรวจ) ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 3, pg_temp.bud('CBS', 'open_review', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":70000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":30000,"vat":0,"glCode":"","glName":""}]}')) like '%แก้รายการ%', 'ระหว่างรอผู้คุมงบยืนยัน แก้ Item ไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 3, pg_temp.bud('CBS', 'active', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) like '%ไม่ถูกขั้นตอน%', 'Business ยืนยัน Item ของตัวเองไม่ได้');
+select pg_temp.as_user(10);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 3, pg_temp.bud('CBS', 'open_review', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) like '%เมื่อผู้คุมงบยืนยัน Item%', 'บัญชีใส่ GL ก่อนผู้คุมงบยืนยัน Item ไม่ได้');
+select pg_temp.as_user(2);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 3, pg_temp.bud('CBS', 'open_returned', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-01-01"},"returnReason":"แก้วงเงิน","items":[{"id":"a1","code":"1","amount":60000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":40000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'ผู้คุมงบส่ง Item กลับให้แก้ได้');
+select pg_temp.as_user(5);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 4, pg_temp.bud('CBS', 'open_review', 5, '{"setup":true,"structure":"items","items":[{"id":"a1","code":"1","amount":70000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":30000,"vat":0,"glCode":"","glName":""}]}')) like '%ลบบันทึกการลง Item%', 'Business ลบ breakdown ตอนส่งกลับไม่ได้');
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 4, pg_temp.bud('CBS', 'open_review', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-02-01"},"items":[{"id":"a1","code":"1","amount":70000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":30000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'Business แก้ Item แล้วส่งให้ผู้คุมงบยืนยันใหม่ได้');
+select pg_temp.as_user(2);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 5, pg_temp.bud('CBS', 'active', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-02-01","confirmedBy":"y"},"items":[{"id":"a1","code":"1","amount":70000,"vat":0,"glCode":"","glName":""},{"id":"a2","code":"2","amount":30000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'ผู้คุมงบยืนยัน Item และเปิดใช้งบ OPEX ได้');
+select pg_temp.as_user(10);
+select pg_temp.ok(pg_temp.try_save('budget', 'ob', 6, pg_temp.bud('CBS', 'active', 5, '{"setup":true,"structure":"items","breakdown":{"by":"x","at":"2026-02-01","confirmedBy":"y"},"items":[{"id":"a1","code":"1","amount":70000,"vat":0,"glCode":"510101","glName":"วัตถุดิบ"},{"id":"a2","code":"2","amount":30000,"vat":0,"glCode":"","glName":""}]}')) = 'OK', 'บัญชีใส่ GL ได้หลังผู้คุมงบยืนยัน Item (งบเปิดใช้แล้ว)');
+select pg_temp.as_user(5);
 
 -- ================================================================ คำขอเบิกใช้งบ
 -- ขอเบิก: ต้องงบเปิดใช้ + เจ้าของงบ/ธุรการ + สถานะเริ่มต้นรอตรวจ
