@@ -163,7 +163,7 @@
   };
   /** ประเภทการเบิกใช้งบ (CAPEX) และจังหวะที่ตัดงบจริง */
   const USE_TYPES = {
-    prpo: { label: 'ซื้อโดยเปิด PR / PO', short: 'PR/PO', cut: 'ตัดงบเมื่อจัดซื้อออก PO (ตามยอด PO)', who: 'จัดซื้อ' },
+    prpo: { label: 'ซื้อโดยเปิด PR / PO', short: 'PR/PO', cut: 'ตัดงบเมื่อจัดซื้อบันทึก PO (ตามยอด PO) แล้วปิดยอดทันที ส่วนต่างคืนเข้างบ', who: 'จัดซื้อ' },
     advance: { label: 'Advance (เงินทดรอง)', short: 'Advance', cut: 'ผู้คุมงบอนุมัติ = จ่ายเงินทดรอง · ตัดงบเมื่อ Business / ธุรการเคลียร์เงินทดรองพร้อมใบเสร็จ', who: 'Business / ธุรการ (เคลียร์)' },
     reimburse: { label: 'พนักงานสำรองจ่าย', short: 'สำรองจ่าย', cut: 'ตัดงบทันทีเมื่อผู้คุมงบตรวจผ่าน (ปิดยอดอัตโนมัติ)', who: 'ผู้คุมงบ (อัตโนมัติ)' },
     direct: { label: 'จ่ายตรงให้ Supplier', short: 'จ่ายตรง', cut: 'ตัดงบทันทีเมื่อผู้คุมงบตรวจผ่าน (ปิดยอดอัตโนมัติ)', who: 'ผู้คุมงบ (อัตโนมัติ)', hint: 'ค่าแรง · จ้างเหมา · จ่ายรายวัน · ค่าน้ำมัน · Stock' }
@@ -4879,8 +4879,8 @@
 
   const CUT_KIND = { po: 'ใบสั่งซื้อ (PO)', clear: 'เคลียร์เงินทดรอง', reimburse: 'จ่ายคืนพนักงาน', payment: 'จ่ายเงิน Supplier' };
   const CUT_FOR_TYPE = { prpo: 'po', advance: 'clear', reimburse: 'reimburse', direct: 'payment' };
-  /** ประเภทที่บันทึกครั้งเดียวแล้วปิดยอดทันที (ยอดจริงชัดเจนจากใบเสร็จ) */
-  const CUT_CLOSES = { clear: true, reimburse: true };
+  /** ประเภทที่บันทึกครั้งเดียวแล้วปิดยอดทันที (ยอดจริงชัดเจนจากใบเสร็จ / PO) */
+  const CUT_CLOSES = { clear: true, reimburse: true, po: true }; // PO: จัดซื้อบันทึก PO ใบแรก → ตัดงบตามยอด PO และปิดยอดทันที (ส่วนต่างคืนเข้างบ)
   const cutPerm = (r) => (r.useType === 'prpo' ? 'po.record' : 'cut.record');
 
   /** การตัดงบของใบเบิกใช้งบ CAPEX ตามประเภท */
@@ -6722,10 +6722,8 @@
         [sec('', inbox(u), (l) => requestTable(l, true))]);
     }
     if (has('po.record')) {
-      add('po', 'รอออก PO', true, 'ใบเบิกใช้งบประเภท PR/PO ที่ผู้คุมงบอนุมัติแล้ว — บันทึกเลข PR/PO และยอด PO เพื่อตัดงบ',
+      add('po', 'รอออก PO', true, 'ใบเบิกใช้งบประเภท PR/PO ที่ผู้คุมงบอนุมัติแล้ว — บันทึกเลข PR/PO และยอด PO — ระบบตัดงบและปิดยอดให้ทันที (ผู้คุมงบไม่ต้องทำอะไรต่อ)',
         [sec('', db.requests.filter((r) => reqScoped(r) && needsPO(r)), (l) => cutQueueTable(l, false))]);
-      add('po-done', 'บันทึก PO แล้ว', false, 'ผู้คุมงบยืนยันยอดและปิดยอดเมื่อรับของ / จ่ายครบ',
-        [sec('', db.requests.filter((r) => reqScoped(r) && r.useType === 'prpo' && hasPO(r) && r.status === 'approved'), (l) => cutQueueTable(l, false))]);
     }
     if (has('cut.record')) {
       add('cuts', 'รอตัดงบ / ปิดยอด', true, 'ใบเบิกใช้งบที่ออกแล้วแต่ยังไม่ปิดยอด (ไม่รวม PR/PO ที่รอจัดซื้อออก PO)',
@@ -7923,7 +7921,7 @@
   // ข้อมูลหลัก (db.master) ไม่อยู่ในชั้นนี้ — เก็บแยกที่ v2_master (loadRemoteMaster / bindMaster)
   // แอปแก้ข้อมูลใน db แล้วเรียก save() ตามเดิม → save() ตั้งเวลาให้ syncPush() ส่งเฉพาะเอกสารที่เปลี่ยน (เทียบกับ snapshot ล่าสุดที่ตรงกับเซิร์ฟเวอร์)
   // เลขเวอร์ชันสคีมาที่เว็บนี้ต้องการ — ต้องเท่ากับ v2_schema_version() ใน supabase/schema_v2b.sql (ตรวจด้วย supabase/tests/check_schema.js)
-  const SCHEMA_VERSION = 7;
+  const SCHEMA_VERSION = 8;
   let schemaStale = false; // ฐานข้อมูลยังไม่ได้รันสคีมาล่าสุด → แสดงแถบเตือน
   async function checkSchemaVersion() {
     try {

@@ -225,4 +225,33 @@ select pg_temp.as_user(5);
 select pg_temp.ok(pg_temp.try_save('budget', 'cz2', 0, pg_temp.bud('CAPEX', 'active', 5)) like '%สร้างงบด้วยสถานะ%', 'เปิดกฎกลับ (on): บังคับอีกครั้ง');
 
 reset role;
+
+-- ================================================================ ย้ายใบเบิกเก่า (ก่อนกฎตัดงบใหม่) เข้ากฎใหม่
+reset role;
+insert into public.v2_docs (kind, id, company, owner_id, requester_id, budget_id, data, version, deleted) values
+  ('request', 'lg-direct', 'PBI', '', '', 'x', '{"status":"approved","useType":"direct","amount":600,"cuts":[],"events":[]}', 1, false),
+  ('request', 'lg-part',   'PBI', '', '', 'x', '{"status":"approved","useType":"reimburse","amount":1000,"cuts":[{"id":"c1","kind":"reimburse","amount":700}]}', 1, false),
+  ('request', 'lg-adv',    'PBI', '', '', 'x', '{"status":"approved","useType":"advance","amount":500,"cuts":[]}', 1, false),
+  ('request', 'lg-advclr', 'PBI', '', '', 'x', '{"status":"approved","useType":"advance","amount":500,"cuts":[{"id":"c2","kind":"clear","amount":450}]}', 1, false),
+  ('request', 'lg-po',     'PBI', '', '', 'x', '{"status":"approved","useType":"prpo","amount":900,"cuts":[{"id":"c3","kind":"po","amount":800}]}', 1, false),
+  ('request', 'lg-nopo',   'PBI', '', '', 'x', '{"status":"approved","useType":"prpo","amount":900,"cuts":[]}', 1, false),
+  ('request', 'lg-new',    'PBI', '', '', 'x', '{"status":"approved","cutRule":2,"useType":"direct","amount":100,"cuts":[]}', 1, false),
+  ('request', 'lg-closed', 'PBI', '', '', 'x', '{"status":"closed","useType":"direct","amount":100,"cuts":[{"id":"c9","kind":"payment","amount":100}]}', 1, false);
+select pg_temp.ok(public._v2_migrate_cut_rule() = 6, 'ย้ายใบเก่า 6 ใบ (ไม่แตะใบใหม่ / ใบที่ปิดแล้ว)');
+select pg_temp.ok((select data ->> 'status' from public.v2_docs where id = 'lg-direct') = 'closed'
+  and (select (data -> 'cuts' -> 0 ->> 'amount')::numeric from public.v2_docs where id = 'lg-direct') = 600
+  and (select data ->> 'cutRule' from public.v2_docs where id = 'lg-direct') = '2', 'จ่ายตรง: ตัดงบเต็มยอดและปิดยอด');
+select pg_temp.ok((select (data -> 'closed' ->> 'actual')::numeric from public.v2_docs where id = 'lg-part') = 700
+  and (select (data -> 'closed' ->> 'returned')::numeric from public.v2_docs where id = 'lg-part') = 300, 'สำรองจ่ายที่ตัดบางส่วนแล้ว: ปิดด้วยยอดที่ตัด คืนส่วนต่าง');
+select pg_temp.ok((select data ->> 'status' from public.v2_docs where id = 'lg-adv') = 'approved'
+  and (select data -> 'advance' ->> 'auto' from public.v2_docs where id = 'lg-adv') = 'true', 'เงินทดรองที่ยังไม่เคลียร์: ถือว่าจ่ายแล้ว รอ Business เคลียร์');
+select pg_temp.ok((select data ->> 'status' from public.v2_docs where id = 'lg-advclr') = 'closed'
+  and (select (data -> 'closed' ->> 'returned')::numeric from public.v2_docs where id = 'lg-advclr') = 50, 'เงินทดรองที่เคลียร์แล้ว: ปิดยอด คืนส่วนต่าง');
+select pg_temp.ok((select data ->> 'status' from public.v2_docs where id = 'lg-po') = 'closed'
+  and (select (data -> 'closed' ->> 'returned')::numeric from public.v2_docs where id = 'lg-po') = 100, 'PR/PO ที่มี PO แล้ว: ปิดยอด');
+select pg_temp.ok((select data ->> 'status' from public.v2_docs where id = 'lg-nopo') = 'approved'
+  and (select data ->> 'cutRule' from public.v2_docs where id = 'lg-nopo') = '2', 'PR/PO ที่ยังไม่มี PO: รอจัดซื้อบันทึก PO (กฎใหม่)');
+select pg_temp.ok((select version from public.v2_docs where id = 'lg-direct') = 2 and (select version from public.v2_docs where id = 'lg-new') = 1, 'เพิ่มเลขเวอร์ชันเฉพาะใบที่ย้าย');
+select pg_temp.ok(public._v2_migrate_cut_rule() = 0, 'รันซ้ำไม่แตะซ้ำ');
+
 \echo ALL V2C TESTS PASSED
