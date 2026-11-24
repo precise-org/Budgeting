@@ -5873,7 +5873,7 @@
     const known = new Set(db.master.companies.map((c) => c.code));
     const loose = db.master.departments.filter((d) => !known.has(d.company));
     return '<section class="card form-section"><div class="section-head"><div><h2 class="section-title">' + sec.title + '</h2><div class="muted section-hint">' + sec.hint + '</div></div></div>' +
-      '<form class="master-form" data-key="companies"><div class="table-wrap"><table class="edit-table"><thead><tr>' +
+      '<form class="master-form" data-key="companies"><div class="table-wrap"><table class="edit-table" data-searchable="always" data-search-groups data-search-placeholder="ค้นหาบริษัทหรือหน่วยงาน"><thead><tr>' +
       sec.cols.map((c) => '<th>' + c.label + '</th>').join('') + '<th></th></tr></thead><tbody>' +
       db.master.companies.map((c) => companyGroupHtml(sec, c, false)).join('') +
       (loose.length ? '<tr class="dept-unassigned-head"><td colspan="4"><div class="alert warn small">หน่วยงานที่ยังไม่ระบุบริษัท — เลือกบริษัทของหน่วยงานให้ครบก่อนบันทึก</div></td></tr>' + loose.map((d) => deptSubRow(d, true)).join('') : '') +
@@ -5888,7 +5888,7 @@
     const navTitle = MASTER_NAV.find(([k]) => k === key)[1];
     const sections = MASTER_SECTIONS.filter((sec) => sec.key === key).map((sec) => (sec.key === 'companies' ? companiesSection(sec) : '<section class="card form-section"><div class="section-head"><div><h2 class="section-title">' + sec.title +
       '</h2><div class="muted section-hint">' + sec.hint + '</div></div></div>' +
-      '<form class="master-form" data-key="' + sec.key + '"><div class="table-wrap"><table class="edit-table"><thead><tr>' +
+      '<form class="master-form" data-key="' + sec.key + '"><div class="table-wrap"><table class="edit-table" data-searchable="always" data-search-placeholder="ค้นหา' + esc(sec.title) + '"><thead><tr>' +
       sec.cols.map((c) => '<th>' + c.label + '</th>').join('') + '<th></th></tr></thead><tbody>' +
       db.master[sec.key].map((it) => masterRow(sec, it, false)).join('') + '</tbody></table></div>' +
       '<template>' + masterRow(sec, {}, true) + '</template>' +
@@ -6065,7 +6065,7 @@
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const keyCol = sec.cols[0].k;
-        const rows = Array.from(tbody.rows).map((tr) => {
+        const rows = Array.from(tbody.rows).filter((tr) => !tr.matches('.search-empty')).map((tr) => {
           const it = { orig: tr.dataset.orig };
           sec.cols.forEach((c) => {
             const el = tr.querySelector('[data-k="' + c.k + '"]');
@@ -6763,6 +6763,83 @@
     return '<div class="page-head"><div><h1>' + (tab === 'roles' ? 'บทบาทและสิทธิ์' : 'ผู้ใช้') + '</h1><div class="page-sub">' +
       (tab === 'roles' ? 'กำหนดว่าแต่ละบทบาททำอะไรได้บ้าง · สร้างบทบาทเพิ่มได้ — ' : 'เพิ่ม แก้ไข เปิด/ปิดใช้งานผู้ใช้ และรีเซ็ตรหัสผ่าน — ') + store + '</div></div></div>' +
       takeFlash() + '<div id="formError"></div><div id="adminBox">' + (tab === 'roles' ? viewAdminRoles() : viewAdminUsers()) + '</div>';
+  }
+
+
+  // ---------------------------------------------------------------- ช่องค้นหาในตาราง (ใช้ร่วมกันทุกหน้า)
+
+  /** ข้อความที่ใช้ค้นของแถว: ข้อความในแถว + ค่าในช่องกรอก + ตัวเลือกที่เลือกในช่องเลือก (ตารางข้อมูลหลักเป็นช่องกรอก) */
+  function rowSearchText(tr) {
+    let t = tr.textContent;
+    tr.querySelectorAll('input:not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio]), textarea').forEach((i) => { t += ' ' + i.value; });
+    tr.querySelectorAll('select').forEach((sel) => { const o = sel.options[sel.selectedIndex]; if (o && o.value) t += ' ' + o.text; });
+    return t.toLowerCase().replace(/\s+/g, ' ');
+  }
+  /**
+   * ใส่ช่องค้นหา (กรองแถวฝั่งเบราว์เซอร์) ให้ตารางข้อมูลเยอะ
+   *  - table[data-searchable="always"] = ใส่เสมอ (เช่นตารางข้อมูลหลัก) · data-search-placeholder = ข้อความในช่อง
+   *  - ตารางรายการทั่วไป (.table-wrap) ที่มี ≥ SEARCH_MIN_ROWS แถวได้ช่องค้นหาอัตโนมัติ — ยกเว้นหน้าที่มีตัวกรองของตัวเองอยู่แล้ว · ตารางในฟอร์ม/เอกสารพิมพ์/ตารางแบบ "หัวข้อ-ค่า" · หน้าแดชบอร์ด
+   *  - table[data-search-groups]: แถว .co-row เป็นหัวกลุ่ม (บริษัท) แถวถัดไปจนถึงหัวกลุ่มใหม่เป็นแถวย่อย (หน่วยงาน) — กลุ่มแสดงเมื่อหัวกลุ่มหรือแถวย่อยตรงคำค้น
+   *  - แถวที่เพิ่งเพิ่มและยังไม่ได้บันทึก (data-orig="") แสดงเสมอ
+   */
+  const SEARCH_MIN_ROWS = 12;
+  function enhanceSearchableTables(root, route) {
+    const hasOwnFilter = !!root.querySelector('.admin-filters, .rr-filter-row');
+    const cands = Array.from(root.querySelectorAll('table')).filter((t) => {
+      if (t.dataset.searchable === 'always') return true;
+      if (hasOwnFilter || route === 'dashboard') return false;
+      if (!t.closest('.table-wrap') || t.closest('form, .doc, .viewer, .memo-doc') || t.matches('.perm-matrix, .edit-table')) return false;
+      if (!t.tBodies[0] || t.tBodies[0].querySelector('tr:first-child > th')) return false;
+      return t.tBodies[0].rows.length >= SEARCH_MIN_ROWS;
+    });
+    cands.forEach((table) => {
+      const body = table.tBodies[0];
+      const grouped = table.hasAttribute('data-search-groups');
+      const bar = document.createElement('div');
+      bar.className = 'admin-filters table-search';
+      bar.innerHTML = '<label class="input-wrap search">' + ICON_SEARCH + '<input type="search" placeholder="' + esc(table.dataset.searchPlaceholder || 'ค้นหาในตารางนี้') + '" aria-label="ค้นหาในตาราง"></label>' +
+        '<span class="muted search-count" aria-live="polite"></span>';
+      (table.closest('.table-wrap') || table).insertAdjacentElement('beforebegin', bar);
+      const input = bar.querySelector('input'), count = bar.querySelector('.search-count');
+      const colspan = (table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells.length : 1);
+      const empty = document.createElement('tr');
+      empty.className = 'search-empty'; empty.hidden = true;
+      empty.innerHTML = '<td colspan="' + colspan + '" class="empty">ไม่พบรายการที่ค้นหา</td>';
+      const skip = (tr) => tr.matches('.search-empty, .dept-add-row, .dept-unassigned-head');
+      const isNew = (tr) => tr.dataset.orig === '';
+      const apply = () => {
+        const q = input.value.trim().toLowerCase();
+        const rows = Array.from(body.rows).filter((tr) => !tr.matches('.search-empty'));
+        const data = rows.filter((tr) => !skip(tr));
+        let shown = 0;
+        if (grouped) {
+          let group = [];
+          const flush = () => {
+            if (!group.length) return;
+            const head = group[0], kids = group.slice(1);
+            const headHit = !q || rowSearchText(head).includes(q);
+            const kidHit = new Map(kids.filter((k) => !skip(k)).map((k) => [k, !q || isNew(k) || rowSearchText(k).includes(q)]));
+            const any = headHit || isNew(head) || Array.from(kidHit.values()).some(Boolean);
+            head.hidden = !any;
+            kids.forEach((k) => { k.hidden = !any || (skip(k) ? false : !(headHit || kidHit.get(k))); });
+            group = [];
+          };
+          rows.forEach((tr) => { if (tr.matches('.co-row, .dept-unassigned-head')) { flush(); } group.push(tr); });
+          flush();
+        } else {
+          data.forEach((tr) => { tr.hidden = !!q && !isNew(tr) && !rowSearchText(tr).includes(q); });
+        }
+        shown = data.filter((tr) => !tr.hidden).length;
+        empty.hidden = !(q && shown === 0);
+        count.textContent = q ? 'แสดง ' + shown + ' จาก ' + data.length + ' รายการ' : data.length + ' รายการ';
+      };
+      body.appendChild(empty);
+      input.addEventListener('input', apply);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); }); // ช่องค้นหาอยู่ในฟอร์มข้อมูลหลัก — Enter ต้องไม่ส่งฟอร์ม
+      // เพิ่ม/ลบแถวหลังค้นหาอยู่ → กรองใหม่ (แถวใหม่ที่ยังไม่บันทึกแสดงเสมอ)
+      new MutationObserver((muts) => { if (muts.some((m) => m.type === 'childList')) apply(); }).observe(body, { childList: true });
+      apply();
+    });
   }
 
   /** ข้อมูลที่ฟอร์มผู้ใช้ต้องกรอก ตามสิทธิ์ของบทบาทที่ติ๊ก: ฝั่ง Business (สังกัดบริษัท+หน่วยงาน) · ธุรการ (หลายหน่วยงาน) · ผู้ทำงาน (บริษัทที่รับผิดชอบ) · Admin (ไม่ต้อง) */
@@ -7578,6 +7655,7 @@
         (can('user.manage') ? '· ผู้ดูแลระบบ: รันไฟล์ <code>supabase/schema_v2_all.sql</code> ใหม่ใน Supabase SQL Editor (ดู supabase/SETUP-v2.md ขั้นตอน 2) แล้วรีเฟรชหน้านี้' : '· แจ้งผู้ดูแลระบบให้อัปเดตฐานข้อมูล') + '</div>' + html;
     }
     app.innerHTML = html;
+    enhanceSearchableTables(app, parts[0]);
     // ปุ่ม "ยกเลิก" ในฟอร์มกลับไปหน้าก่อนหน้าเช่นเดียวกับปุ่มย้อนกลับ
     if (back) app.querySelectorAll('[data-back]').forEach((a) => { a.setAttribute('href', back); });
     bindBudgetForm();
