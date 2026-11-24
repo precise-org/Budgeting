@@ -5896,10 +5896,19 @@
 
     return '<div class="page-head"><div><h1>' + esc(navTitle) + '</h1><div class="page-sub">ข้อมูลหลัก — ค่าที่ใช้เป็นตัวเลือกในฟอร์มและรายงาน</div></div></div>' + takeFlash() +
       (AUTH_REMOTE ? (masterOnline
-        ? '<div class="alert info small">ข้อมูลหลักเก็บบนเซิร์ฟเวอร์ — ทุกคนเห็นชุดเดียวกับที่บันทึกที่นี่ · การเช็กว่า "ลบได้ไหม" และการเปลี่ยนชื่อ ครอบคลุมเฉพาะงบที่เก็บในเครื่องนี้ (งบยังเก็บในเบราว์เซอร์ของแต่ละคนจนกว่าจะย้ายขึ้นเซิร์ฟเวอร์)</div>'
+        ? '<div class="alert info small">ข้อมูลหลักเก็บบนเซิร์ฟเวอร์ — ทุกคนเห็นชุดเดียวกับที่บันทึกที่นี่ · ชื่อที่ถูกใช้อยู่ในงบหรือเอกสารแล้วลบหรือเปลี่ยนชื่อไม่ได้ (ตรวจจากเอกสารที่คุณมองเห็น — ถ้าต้องการชื่อใหม่ ให้เพิ่มชื่อใหม่และคงชื่อเดิมไว้)</div>'
         : '<div class="alert error small">เชื่อมข้อมูลหลักกับเซิร์ฟเวอร์ไม่ได้ — ' + esc(masterError || 'ยังไม่ได้โหลด') + ' · บันทึกไม่ได้จนกว่าจะเชื่อมต่อได้ (ถ้าเพิ่งอัปเดตระบบ ให้รัน supabase/schema_v2.sql ใน SQL Editor แล้วโหลดหน้าใหม่)</div>') : '') +
       '<div id="formError"></div><div class="form-main">' + sections +
       '</div>';
+  }
+
+  /** โหมด Supabase: ชื่อ/รายการที่ถูกใช้อยู่ในงบหรือเอกสารแล้ว เปลี่ยนชื่อไม่ได้ (เพิ่มชื่อใหม่แทนและคงชื่อเดิมไว้) — คืนข้อความผิดพลาดของแต่ละรายการที่ถูกเปลี่ยนชื่อ */
+  function renameBlockedErrors(sec, rows) {
+    if (!AUTH_REMOTE || !sec.rename) return [];
+    const keyCol = sec.cols[0].k;
+    return rows.filter((it) => it.orig && it.orig !== it[keyCol]).map((it) => ({ it, item: db.master[sec.key].find((x) => x[keyCol] === it.orig) }))
+      .filter((x) => x.item && sec.inUse(x.item))
+      .map((x) => 'เปลี่ยนชื่อ "' + x.it.orig + '" ไม่ได้ — ถูกใช้อยู่ในงบหรือเอกสารแล้ว (เพิ่มชื่อใหม่แทน และคงชื่อเดิมไว้)');
   }
 
   /** บันทึกข้อมูลหลัก 1 รายการ (key) ตามโหมด — คืน true เมื่อสำเร็จ · ล้มเหลวแล้วแสดงข้อผิดพลาด/พากลับหน้า คืน false · rows = แถวที่มี orig (ชื่อ/รหัสเดิม) ไว้เปลี่ยนชื่อที่งบ */
@@ -5926,7 +5935,7 @@
       } finally {
         document.body.classList.remove('busy');
       }
-      if (sec.rename) rows.forEach((it) => { if (it.orig && it.orig !== it[keyCol]) sec.rename(it.orig, it[keyCol]); });
+      // โหมด Supabase ไม่แก้ชื่อย้อนลงเอกสาร (ผู้จัดการข้อมูลหลักไม่มีสิทธิ์เขียนเอกสารของ Business) — ชื่อที่ถูกใช้อยู่เปลี่ยนไม่ได้ (ตรวจก่อนบันทึกด้วย renameBlockedErrors)
       db.master[sec.key] = res.value.items;
       masterMeta[sec.key] = res.value.updatedAt;
       save();
@@ -6033,6 +6042,7 @@
       if (names.some((k, i) => names.indexOf(k) !== i)) errors.push('ชื่อหน่วยงานซ้ำกัน (ชื่อหน่วยงานต้องไม่ซ้ำกันทั้งระบบ)');
       // หน่วยงานที่มีผู้ใช้สังกัดอยู่ เปลี่ยนชื่อไม่ได้ (ผู้ใช้เก็บชื่อหน่วยงาน) — ย้ายผู้ใช้ก่อน
       deptRows.filter((it) => it.orig && it.orig !== it.name && USERS.some((u) => deptsOf(u).includes(it.orig))).forEach((it) => errors.push('เปลี่ยนชื่อ "' + it.orig + '" ไม่ได้ — ยังมีผู้ใช้สังกัดหน่วยงานนี้ (แก้หน่วยงานของผู้ใช้ก่อน)'));
+      errors.push(...renameBlockedErrors(deptSec, deptRows));
       if (errors.length) { showErrors(uniq(errors)); return; }
       const coData = coRows.map((it) => { const o = {}; coSec.cols.forEach((c) => { o[c.k] = it[c.k]; }); return o; });
       const deptData = deptRows.map((it) => ({ name: it.name, company: it.company }));
@@ -6078,6 +6088,7 @@
         rows.forEach((it) => { if (!it[keyCol]) errors.push('กรุณากรอก' + sec.cols[0].label); });
         const keys = rows.map((it) => it[keyCol].toLowerCase());
         if (keys.some((k, i) => k && keys.indexOf(k) !== i)) errors.push(sec.cols[0].label + 'ซ้ำกัน');
+        errors.push(...renameBlockedErrors(sec, rows));
         if (errors.length) { showErrors(errors); return; }
         const data = rows.map((it) => { const o = {}; sec.cols.forEach((c) => { o[c.k] = it[c.k]; }); return o; });
         if (!(await saveMasterData(sec, data, rows, '#/master/' + sec.key))) return;
